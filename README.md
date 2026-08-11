@@ -25,16 +25,31 @@ opens a new session analyzing what went wrong and how to improve the next one.
 
 ## Install
 
+**macOS / Linux:**
+
 ```bash
 git clone https://github.com/tommulkins/hermes-plugin-session-stats.git
 cd hermes-plugin-session-stats
 ./install.sh
 ```
 
-Then **restart Hermes Desktop** (⌘Q and reopen) so the backend mounts.
+**Windows (PowerShell):**
+
+```powershell
+git clone https://github.com/tommulkins/hermes-plugin-session-stats.git
+cd hermes-plugin-session-stats
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+The installer copies both halves into your Hermes home — `%LOCALAPPDATA%\hermes`
+on Windows, `~/.hermes` elsewhere (honouring a custom `HERMES_HOME` if set) —
+and adds the plugin to `plugins.enabled` in config.yaml. It is idempotent:
+safe to re-run after updates.
+
+Then **restart Hermes Desktop** (⌘Q / quit and reopen) so the backend mounts.
 
 Open it via the sidebar **“Session Stats”** row (graph icon) or **⌘K →
-“Session Stats: Open”**.
+“Session Stats: Open”** (Ctrl+K on Windows).
 
 > The desktop UI hot-reloads, but the Python backend only mounts at startup —
 > the restart is required once after installing.
@@ -44,7 +59,8 @@ Open it via the sidebar **“Session Stats”** row (graph icon) or **⌘K →
 ```bash
 cd hermes-plugin-session-stats
 git pull
-./install.sh        # idempotent — copies new files, never duplicates config
+./install.sh        # macOS/Linux — idempotent, never duplicates config
+powershell -ExecutionPolicy Bypass -File .\install.ps1   # Windows
 ```
 
 Restart Hermes Desktop again to pick up backend changes.
@@ -82,11 +98,12 @@ and navigates you to the new session.
 
 ```
 hermes-plugin-session-stats/
-├── install.sh                                    # idempotent installer
-├── desktop-plugins/session-dashboard/plugin.js   # UI (hot-reloads)
+├── install.sh                                     # macOS/Linux installer
+├── install.ps1                                    # Windows installer
+├── desktop-plugins/session-dashboard/plugin.js    # UI (hot-reloads)
 └── plugins/session-dashboard/dashboard/
-    ├── manifest.json                             # backend manifest
-    └── plugin_api.py                             # FastAPI over state.db
+    ├── manifest.json                              # backend manifest
+    └── plugin_api.py                              # FastAPI over state.db
 ```
 
 ## License
