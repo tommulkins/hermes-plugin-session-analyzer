@@ -67,9 +67,19 @@ Restart Hermes Desktop again to pick up backend changes.
 
 ## Uninstall
 
+**macOS / Linux:**
+
 ```bash
 rm -rf ~/.hermes/desktop-plugins/session-dashboard
 rm -rf ~/.hermes/plugins/session-dashboard
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$home = "$env:LOCALAPPDATA\hermes"   # or your HERMES_HOME if you set one
+Remove-Item -Recurse -Force "$home\desktop-plugins\session-dashboard"
+Remove-Item -Recurse -Force "$home\plugins\session-dashboard"
 ```
 
 Then remove `session-dashboard` from `plugins.enabled` in
