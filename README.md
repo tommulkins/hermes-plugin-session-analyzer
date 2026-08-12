@@ -7,6 +7,8 @@ one.
 
 ![Session Analyzer](assets/screenshot.png)
 
+![Social preview](assets/social-preview.png)
+
 ## What you get
 
 - **Session list** — title, date, tool count, cost; **Load more** up to 500
@@ -36,8 +38,8 @@ one.
 **macOS / Linux:**
 
 ```bash
-git clone https://github.com/tommulkins/hermes-plugin-session-stats.git
-cd hermes-plugin-session-stats
+git clone https://github.com/tommulkins/hermes-plugin-session-analyzer.git
+cd hermes-plugin-session-analyzer
 chmod +x install.sh
 ./install.sh
 ```
@@ -45,8 +47,8 @@ chmod +x install.sh
 **Windows (PowerShell):**
 
 ```powershell
-git clone https://github.com/tommulkins/hermes-plugin-session-stats.git
-cd hermes-plugin-session-stats
+git clone https://github.com/tommulkins/hermes-plugin-session-analyzer.git
+cd hermes-plugin-session-analyzer
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
@@ -66,7 +68,7 @@ Open it via the sidebar **"Session Analyzer"** row (graph icon) or **⌘K →
 ## Update
 
 ```bash
-cd hermes-plugin-session-stats
+cd hermes-plugin-session-analyzer
 git pull
 chmod +x install.sh     # needed once per fresh clone
 ./install.sh            # macOS/Linux — idempotent, never duplicates config
@@ -117,7 +119,7 @@ and navigates you to the new session.
 ## Files
 
 ```
-hermes-plugin-session-stats/
+hermes-plugin-session-analyzer/
 ├── install.sh                                     # macOS/Linux installer
 ├── install.ps1                                    # Windows installer
 ├── desktop-plugins/session-dashboard/plugin.js    # UI (hot-reloads)

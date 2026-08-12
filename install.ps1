@@ -1,8 +1,8 @@
 # Install Hermes Session Stats (desktop plugin + backend) on Windows.
 # Idempotent: safe to re-run after updates; never duplicates config entries.
 # Usage (PowerShell):
-#   git clone https://github.com/tommulkins/hermes-plugin-session-stats.git
-#   cd hermes-plugin-session-stats
+#   git clone https://github.com/tommulkins/hermes-plugin-session-analyzer.git
+#   cd hermes-plugin-session-analyzer
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 $ErrorActionPreference = 'Stop'
