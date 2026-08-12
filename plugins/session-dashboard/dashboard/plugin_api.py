@@ -159,6 +159,76 @@ async def list_sessions(
     }
 
 
+@router.get("/search")
+async def search_sessions(
+    q: str = Query(..., min_length=1, max_length=200),
+    limit: int = Query(25, ge=1, le=100),
+) -> dict:
+    """Full-text search over message content using the state.db FTS5 index.
+
+    Mirrors hermes_state_search.py::_run_trigram_search: quote each
+    non-operator token so FTS5 specials are neutralised, search the
+    substring-capable trigram index, and return per-session aggregates
+    (count + a snippet from the best match).
+    """
+    tokens = q.split()
+    parts = []
+    for tok in tokens:
+        if tok.upper() in {"AND", "OR", "NOT"}:
+            parts.append(tok)
+        else:
+            parts.append('"' + tok.replace('"', '""') + '"')
+    fts_query = " ".join(parts)
+
+    try:
+        conn = _connect()
+        # Prefer the trigram index (substring matches); fall back to the
+        # standard unicode61 index if trigram is unavailable.
+        fts_table = "messages_fts_trigram"
+        try:
+            conn.execute(f"SELECT 1 FROM {fts_table} LIMIT 0")
+        except sqlite3.Error:
+            fts_table = "messages_fts"
+        # Per-message rows (snippet() is incompatible with GROUP BY), then
+        # aggregate to one row per session in Python.
+        rows = conn.execute(
+            f"""
+            SELECT
+                s.id AS session_id,
+                s.title,
+                s.source,
+                s.started_at,
+                m.timestamp,
+                snippet({fts_table}, -1, '>>>', '<<<', '...', 40) AS snippet
+            FROM {fts_table}
+            JOIN messages m ON m.id = {fts_table}.rowid
+            JOIN sessions s ON s.id = m.session_id
+            WHERE {fts_table} MATCH ?
+            ORDER BY m.timestamp DESC
+            LIMIT 500
+            """,
+            [fts_query],
+        ).fetchall()
+        conn.close()
+    except sqlite3.Error as e:
+        logger.exception("session search failed")
+        raise HTTPException(status_code=500, detail=f"search failed: {e}")
+
+    # One result per session: newest matching message wins; cap at limit.
+    by_session: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        sid = r["session_id"]
+        if sid in by_session:
+            continue
+        d = dict(r)
+        if d.get("started_at") is not None:
+            d["started_at"] = round(float(d["started_at"]), 3)
+        by_session[sid] = d
+        if len(by_session) >= limit:
+            break
+    return {"query": q, "results": list(by_session.values())}
+
+
 @router.get("/sessions/{session_id}")
 async def session_detail(session_id: str) -> dict:
     """Full per-session view: aggregates, tool calls, files touched."""

@@ -27,7 +27,6 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useState } from 'react'
 
 const ID = 'session-dashboard'
-const LIST_KEY = [ID, 'sessions']
 const DETAIL_KEY = (id) => [ID, 'detail', id]
 
 // Bound in register(); used by query fns so all data flows through ctx.rest
@@ -208,7 +207,7 @@ function TokenBar({ input, output, cache }) {
   })
 }
 
-function SessionList({ sessions, selected, onSelect }) {
+function SessionList({ sessions, selected, onSelect, searchMode }) {
   return jsx(ScrollArea, {
     className: 'h-full',
     children: jsxs('div', {
@@ -232,14 +231,20 @@ function SessionList({ sessions, selected, onSelect }) {
                 s.pinned ? jsx(Codicon, { name: 'pin', size: '0.7rem', className: 'shrink-0 opacity-70' }) : null
               ]
             }),
-            jsxs('div', {
-              className: cn('flex items-center gap-2 text-[0.625rem]', active ? 'opacity-80' : 'text-(--ui-text-tertiary)'),
-              children: [
-                jsx('span', { children: fmtTime(s.started_at) }),
-                jsx('span', { children: `${s.tool_call_count ?? 0} tools` }),
-                jsx('span', { className: 'tabular-nums', children: fmtCost(s.estimated_cost_usd) })
-              ]
-            })
+            searchMode
+              ? jsx('div', {
+                className: cn('truncate text-[0.625rem] leading-snug', active ? 'opacity-80' : 'text-(--ui-text-tertiary)'),
+                title: s.snippet ? s.snippet.replace(/>>>|<<</g, '') : undefined,
+                children: s.snippet ? s.snippet.replace(/>>>/g, '“').replace(/<</g, '”') : fmtTime(s.started_at)
+              })
+              : jsxs('div', {
+                className: cn('flex items-center gap-2 text-[0.625rem]', active ? 'opacity-80' : 'text-(--ui-text-tertiary)'),
+                children: [
+                  jsx('span', { children: fmtTime(s.started_at) }),
+                  jsx('span', { children: `${s.tool_call_count ?? 0} tools` }),
+                  jsx('span', { className: 'tabular-nums', children: fmtCost(s.estimated_cost_usd) })
+                ]
+              })
           ]
         })
       })
@@ -404,11 +409,25 @@ function Detail({ session }) {
 
 function Page() {
   const selected = useValue($selected)
+  // 100 by default; "Load more" bumps to 500 (the backend max).
+  const [limit, setLimit] = useState(100)
+  // Empty = browsing; non-empty = FTS search over message content.
+  const [query, setQuery] = useState('')
+  const q = query.trim()
+
   const { data: list, isLoading, error } = useQuery({
-    queryKey: LIST_KEY,
-    queryFn: () => rest('/sessions?limit=100'),
+    queryKey: [ID, 'sessions', limit],
+    queryFn: () => rest(`/sessions?limit=${limit}`),
     staleTime: 30_000,
-    refetchInterval: 30_000
+    refetchInterval: 30_000,
+    enabled: !q
+  })
+
+  const { data: search, isLoading: searchLoading, error: searchError } = useQuery({
+    queryKey: [ID, 'search', q],
+    queryFn: () => rest(`/search?q=${encodeURIComponent(q)}`),
+    staleTime: 30_000,
+    enabled: !!q
   })
 
   const { data: detail } = useQuery({
@@ -419,6 +438,7 @@ function Page() {
   })
 
   const sessions = list?.sessions || []
+  const searchResults = search?.results || []
 
   // Draggable divider between session list and detail: drag to resize.
   // Pointer capture on the divider itself — the col-resize cursor exists only
@@ -461,20 +481,52 @@ function Page() {
         children: [
           jsx(Codicon, { name: 'graph-line', size: '1rem' }),
           jsx('span', { className: 'text-sm font-semibold', children: 'Session Stats' }),
-          jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: `${sessions.length} sessions` })
+          jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: q ? `${searchResults.length} matches` : `${sessions.length} sessions` })
         ]
       }),
-      isLoading
+      (isLoading && !q) || (searchLoading && q)
         ? jsx('div', { className: 'p-4 text-sm text-(--ui-text-tertiary)', children: 'Loading…' })
-        : error
-          ? jsx('div', { className: 'p-4 text-sm text-(--ui-error)', children: `Failed: ${error.message ?? error}` })
+        : (error && !q) || (searchError && q)
+          ? jsx('div', { className: 'p-4 text-sm text-(--ui-error)', children: `Failed: ${(error || searchError)?.message ?? error ?? searchError}` })
           : jsxs('div', {
             className: 'flex min-h-0 flex-1',
             children: [
               jsx('div', {
-                className: 'min-h-0',
+                className: 'flex min-h-0 flex-col',
                 style: { width: listWidth + 'px', flexShrink: 0 },
-                children: jsx(SessionList, { sessions, selected, onSelect: (id) => $selected.set(id) })
+                children: [
+                  jsx('div', {
+                    className: 'flex items-center gap-1.5 border-b border-(--ui-stroke-secondary) px-2 py-1.5',
+                    children: [
+                      jsx(Codicon, { name: 'search', size: '0.75rem', className: 'shrink-0 text-(--ui-text-tertiary)' }),
+                      jsx('input', {
+                        type: 'search',
+                        value: query,
+                        placeholder: 'Search sessions…',
+                        onChange: (e) => setQuery(e.target.value),
+                        className: 'min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-(--ui-text-quaternary)'
+                      }),
+                      q
+                        ? jsx('button', {
+                          type: 'button',
+                          onClick: () => setQuery(''),
+                          className: 'shrink-0 text-(--ui-text-tertiary) hover:text-foreground',
+                          title: 'Clear search',
+                          children: jsx(Codicon, { name: 'close', size: '0.7rem' })
+                        })
+                        : null
+                    ]
+                  }),
+                  jsx('div', { className: 'min-h-0 flex-1', children: jsx(SessionList, { sessions: q ? searchResults.map(r => ({ ...r, id: r.session_id })) : sessions, selected, onSelect: (id) => $selected.set(id), searchMode: !!q }) }),
+                  !q && sessions.length > 0 && list?.total > sessions.length
+                    ? jsx('div', { className: 'border-t border-(--ui-stroke-secondary) p-1.5', children: jsx('button', {
+                      type: 'button',
+                      onClick: () => setLimit((n) => Math.min(500, n + 200)),
+                      className: 'w-full rounded-md px-2 py-1 text-[0.625rem] font-medium text-(--ui-text-secondary) transition-colors hover:bg-(--chrome-action-hover) hover:text-foreground',
+                      children: `Load more (${sessions.length} / ${list?.total})`
+                    }) })
+                    : null
+                ]
               }),
               // Draggable divider — byte-for-byte the app's native sash
               // hover treatment: persistent hairline + a 0.25rem hover band
