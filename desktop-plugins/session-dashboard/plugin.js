@@ -71,7 +71,11 @@ function buildAskPrompt(s) {
     for (const f of files) lines.push(`- ${f.path}`)
   }
   lines.push('')
-  lines.push('You can look up the full session (messages, tool calls, reasoning) by its session id if needed.')
+  lines.push('Look up the full session transcript with the session_search tool:')
+  lines.push(`- Call session_search with session_id "${s.id}" to read it (large sessions return first/last bookends).`)
+  lines.push('- To see the middle, scroll FORWARD: pass the LAST message id from the previous result as around_message_id. Message ids are global and NOT contiguous across sessions — never invent or guess an id, it errors.')
+  lines.push('- Scroll windows overlap at the anchor by design; ignore duplicates and keep advancing from the newest last id.')
+  lines.push('- Stop once you can explain every failed tool call listed above — do not fetch every remaining gap.')
   lines.push('')
   lines.push('Answer with:')
   lines.push('1. What failed and why — the root cause of each failed tool call.')
