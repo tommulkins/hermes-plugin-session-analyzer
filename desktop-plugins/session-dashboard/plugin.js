@@ -1,5 +1,5 @@
 /**
- * Session Stats — per-session analytics for the Hermes desktop app.
+ * Session Analyzer — per-session analytics for the Hermes desktop app.
  *
  * Full page at /session-dashboard (sidebar nav row + ⌘K command), backed by
  * the session-dashboard Python plugin API (/api/plugins/session-dashboard):
@@ -488,7 +488,7 @@ function Page() {
         className: 'flex items-center gap-2 border-b border-(--ui-stroke-secondary) px-3 py-2',
         children: [
           jsx(Codicon, { name: 'graph-line', size: '1rem' }),
-          jsx('span', { className: 'text-sm font-semibold', children: 'Session Stats' }),
+          jsx('span', { className: 'text-sm font-semibold', children: 'Session Analyzer' }),
           jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: searching ? `${searchResults.length} matches` : `${sessions.length} sessions` })
         ]
       }),
@@ -619,8 +619,8 @@ function Page() {
 
 export default {
   id: ID,
-  name: 'Session Stats',
-  description: 'Per-session analytics: tool calls, token/cache usage, spend, files touched.',
+  name: 'Session Analyzer',
+  description: 'Per-session analytics: tool calls, token/cache usage, spend, files touched, search.',
   defaultEnabled: true,
   register(ctx) {
     rest = ctx.rest
@@ -634,15 +634,15 @@ export default {
       id: 'nav',
       area: SIDEBAR_NAV_AREA,
       order: 60,
-      data: { codicon: 'graph-line', label: 'Session Stats', path: '/session-dashboard' }
+      data: { codicon: 'graph-line', label: 'Session Analyzer', path: '/session-dashboard' }
     })
     ctx.register({
       id: 'open',
       area: PALETTE_AREA,
       data: {
         id: 'session-dashboard.open',
-        label: 'Session Stats: Open',
-        keywords: ['sessions', 'stats', 'dashboard', 'tokens', 'cost', 'usage'],
+        label: 'Session Analyzer: Open',
+        keywords: ['sessions', 'analyzer', 'stats', 'dashboard', 'tokens', 'cost', 'usage', 'search'],
         run: () => host.navigate('/session-dashboard')
       }
     })

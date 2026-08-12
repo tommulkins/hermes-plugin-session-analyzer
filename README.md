@@ -1,14 +1,22 @@
-# Hermes Session Stats
+# Hermes Session Analyzer
 
 Per-session analytics for the **Hermes Desktop** app: tool calls, token/cache
-usage, spend, files touched, failed calls — plus an **Ask AI** button that
-opens a new session analyzing what went wrong and how to improve the next one.
+usage, spend, files touched, failed calls, search — plus an **Ask AI** button
+that opens a new session analyzing what went wrong and how to improve the next
+one.
 
-![Session Stats](assets/screenshot.png)
+![Session Analyzer](assets/screenshot.png)
 
 ## What you get
 
-- **Session list** — last 100 sessions: title, date, tool count, cost
+- **Session list** — title, date, tool count, cost; **Load more** up to 500
+- **Search** — two modes:
+  - **Title filter** — live substring match as you type (searches all sessions)
+  - **Content search** — toggle to `content` for FTS search over message text
+    (the same index Hermes' own session search uses), with `>>>snippet<<<`
+    context per match
+- **Sort** — `recent` or `worst` (most failed tool calls first, red
+  "N failed" badge per row)
 - **Per-session detail** — input/output/cache tokens, spend, duration, message
   count, deterministic summary, tool-call breakdown
 - **Failed calls** — every failed tool call with its error string, click to
@@ -30,6 +38,7 @@ opens a new session analyzing what went wrong and how to improve the next one.
 ```bash
 git clone https://github.com/tommulkins/hermes-plugin-session-stats.git
 cd hermes-plugin-session-stats
+chmod +x install.sh
 ./install.sh
 ```
 
@@ -48,8 +57,8 @@ safe to re-run after updates.
 
 Then **restart Hermes Desktop** (⌘Q / quit and reopen) so the backend mounts.
 
-Open it via the sidebar **“Session Stats”** row (graph icon) or **⌘K →
-“Session Stats: Open”** (Ctrl+K on Windows).
+Open it via the sidebar **"Session Analyzer"** row (graph icon) or **⌘K →
+"Session Analyzer: Open"** (Ctrl+K on Windows).
 
 > The desktop UI hot-reloads, but the Python backend only mounts at startup —
 > the restart is required once after installing.
@@ -59,7 +68,8 @@ Open it via the sidebar **“Session Stats”** row (graph icon) or **⌘K →
 ```bash
 cd hermes-plugin-session-stats
 git pull
-./install.sh        # macOS/Linux — idempotent, never duplicates config
+chmod +x install.sh     # needed once per fresh clone
+./install.sh            # macOS/Linux — idempotent, never duplicates config
 powershell -ExecutionPolicy Bypass -File .\install.ps1   # Windows
 ```
 
