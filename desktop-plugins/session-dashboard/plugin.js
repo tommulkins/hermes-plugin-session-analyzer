@@ -80,7 +80,8 @@ function buildAskPrompt(s) {
   lines.push('1. What failed and why — the root cause of each failed tool call.')
   lines.push('2. How the session could have been more compact — token/cache usage, redundant work, context bloat.')
   lines.push('3. Concrete Hermes config or workflow suggestions to reduce failures and cost next time (e.g. compression thresholds, tools, model choice, prompt changes).')
-  lines.push('4. A short checklist for the next session based on this one.')
+  lines.push('4. Skills that could have helped — run skills_list and check whether an existing skill (or a skill the session should have triggered) would have avoided a failure or saved steps. Name the skill and what it would have changed.')
+  lines.push('5. A short checklist for the next session based on this one.')
   return lines.join('\n')
 }
 
