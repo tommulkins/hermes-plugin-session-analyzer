@@ -484,13 +484,9 @@ function Page() {
           jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: q ? `${searchResults.length} matches` : `${sessions.length} sessions` })
         ]
       }),
-      (isLoading && !q) || (searchLoading && q)
-        ? jsx('div', { className: 'p-4 text-sm text-(--ui-text-tertiary)', children: 'Loading…' })
-        : (error && !q) || (searchError && q)
-          ? jsx('div', { className: 'p-4 text-sm text-(--ui-error)', children: `Failed: ${(error || searchError)?.message ?? error ?? searchError}` })
-          : jsxs('div', {
-            className: 'flex min-h-0 flex-1',
-            children: [
+      jsxs('div', {
+        className: 'flex min-h-0 flex-1',
+        children: [
               jsx('div', {
                 className: 'flex min-h-0 flex-col',
                 style: { width: listWidth + 'px', flexShrink: 0 },
@@ -500,7 +496,9 @@ function Page() {
                     children: [
                       jsx(Codicon, { name: 'search', size: '0.75rem', className: 'shrink-0 text-(--ui-text-tertiary)' }),
                       jsx('input', {
-                        type: 'search',
+                        // type="text" (NOT "search"): WebKit's native search
+                        // clear button would double up with ours.
+                        type: 'text',
                         value: query,
                         placeholder: 'Search sessions…',
                         onChange: (e) => setQuery(e.target.value),
@@ -517,7 +515,14 @@ function Page() {
                         : null
                     ]
                   }),
-                  jsx('div', { className: 'min-h-0 flex-1', children: jsx(SessionList, { sessions: q ? searchResults.map(r => ({ ...r, id: r.session_id })) : sessions, selected, onSelect: (id) => $selected.set(id), searchMode: !!q }) }),
+                  jsx('div', {
+                    className: 'min-h-0 flex-1',
+                    children: (searchLoading && q) || (isLoading && !q)
+                      ? jsx('div', { className: 'p-4 text-sm text-(--ui-text-tertiary)', children: 'Loading…' })
+                      : ((searchError && q) || (error && !q))
+                        ? jsx('div', { className: 'p-4 text-sm text-(--ui-error)', children: `Failed: ${(error || searchError)?.message ?? error ?? searchError}` })
+                        : jsx(SessionList, { sessions: q ? searchResults.map(r => ({ ...r, id: r.session_id })) : sessions, selected, onSelect: (id) => $selected.set(id), searchMode: !!q })
+                  }),
                   !q && sessions.length > 0 && list?.total > sessions.length
                     ? jsx('div', { className: 'border-t border-(--ui-stroke-secondary) p-1.5', children: jsx('button', {
                       type: 'button',
