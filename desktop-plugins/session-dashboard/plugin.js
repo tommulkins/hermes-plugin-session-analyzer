@@ -207,7 +207,7 @@ function TokenBar({ input, output, cache }) {
   })
 }
 
-function SessionList({ sessions, selected, onSelect, searchMode }) {
+function SessionList({ sessions, selected, onSelect, searchMode, showFailed }) {
   return jsx(ScrollArea, {
     className: 'h-full',
     children: jsxs('div', {
@@ -228,6 +228,9 @@ function SessionList({ sessions, selected, onSelect, searchMode }) {
               className: 'flex items-center gap-1.5 min-w-0',
               children: [
                 jsx('span', { className: 'truncate font-medium', children: s.title || s.id.slice(9) }),
+                showFailed && s.failed_count > 0
+                  ? jsx(Badge, { variant: 'destructive', className: 'text-[0.6rem] shrink-0', children: `${s.failed_count} failed` })
+                  : null,
                 s.pinned ? jsx(Codicon, { name: 'pin', size: '0.7rem', className: 'shrink-0 opacity-70' }) : null
               ]
             }),
@@ -411,23 +414,27 @@ function Page() {
   const selected = useValue($selected)
   // 100 by default; "Load more" bumps to 500 (the backend max).
   const [limit, setLimit] = useState(100)
-  // Empty = browsing; non-empty = FTS search over message content.
+  // Title filter: live substring match on session titles (backend LIKE).
   const [query, setQuery] = useState('')
   const q = query.trim()
+  // Content search: when true, q runs the FTS semantic search instead.
+  const [contentMode, setContentMode] = useState(false)
+  // 'recent' (started_at desc) | 'failed' (worst sessions by failed calls).
+  const [sort, setSort] = useState('recent')
 
   const { data: list, isLoading, error } = useQuery({
-    queryKey: [ID, 'sessions', limit],
-    queryFn: () => rest(`/sessions?limit=${limit}`),
+    queryKey: [ID, 'sessions', limit, q, sort],
+    queryFn: () => rest(`/sessions?limit=${limit}&q=${encodeURIComponent(q)}&sort=${sort}`),
     staleTime: 30_000,
     refetchInterval: 30_000,
-    enabled: !q
+    enabled: !contentMode
   })
 
   const { data: search, isLoading: searchLoading, error: searchError } = useQuery({
     queryKey: [ID, 'search', q],
     queryFn: () => rest(`/search?q=${encodeURIComponent(q)}`),
     staleTime: 30_000,
-    enabled: !!q
+    enabled: contentMode && !!q
   })
 
   const { data: detail } = useQuery({
@@ -439,6 +446,7 @@ function Page() {
 
   const sessions = list?.sessions || []
   const searchResults = search?.results || []
+  const searching = contentMode && !!q
 
   // Draggable divider between session list and detail: drag to resize.
   // Pointer capture on the divider itself — the col-resize cursor exists only
@@ -481,7 +489,7 @@ function Page() {
         children: [
           jsx(Codicon, { name: 'graph-line', size: '1rem' }),
           jsx('span', { className: 'text-sm font-semibold', children: 'Session Stats' }),
-          jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: q ? `${searchResults.length} matches` : `${sessions.length} sessions` })
+          jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: searching ? `${searchResults.length} matches` : `${sessions.length} sessions` })
         ]
       }),
       jsxs('div', {
@@ -492,22 +500,35 @@ function Page() {
                 style: { width: listWidth + 'px', flexShrink: 0 },
                 children: [
                   jsx('div', {
-                    className: 'flex items-center gap-1.5 border-b border-(--ui-stroke-secondary) px-2 py-1.5',
+                    className: 'flex items-center gap-1 border-b border-(--ui-stroke-secondary) px-2 py-1.5',
                     children: [
-                      jsx(Codicon, { name: 'search', size: '0.75rem', className: 'shrink-0 text-(--ui-text-tertiary)' }),
+                      jsx(Codicon, { name: contentMode ? 'sparkle' : 'search', size: '0.75rem', className: cn('shrink-0', contentMode ? 'text-(--ui-accent)' : 'text-(--ui-text-tertiary)') }),
                       jsx('input', {
                         // type="text" (NOT "search"): WebKit's native search
                         // clear button would double up with ours.
                         type: 'text',
                         value: query,
-                        placeholder: 'Search sessions…',
+                        placeholder: contentMode ? 'Search message content…' : 'Filter by title…',
                         onChange: (e) => setQuery(e.target.value),
                         className: 'min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-(--ui-text-quaternary)'
+                      }),
+                      // Content search: FTS over message content (semantic).
+                      jsx('button', {
+                        type: 'button',
+                        onClick: () => setContentMode((m) => !m),
+                        className: cn(
+                          'shrink-0 rounded-md px-1.5 py-0.5 text-[0.6rem] font-medium transition-colors',
+                          contentMode
+                            ? 'bg-(--ui-accent)/20 text-(--ui-accent)'
+                            : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
+                        ),
+                        title: 'Toggle content search (FTS over message text)',
+                        children: 'content'
                       }),
                       q
                         ? jsx('button', {
                           type: 'button',
-                          onClick: () => setQuery(''),
+                          onClick: () => { setQuery(''); setContentMode(false) },
                           className: 'shrink-0 text-(--ui-text-tertiary) hover:text-foreground',
                           title: 'Clear search',
                           children: jsx(Codicon, { name: 'close', size: '0.7rem' })
@@ -516,14 +537,39 @@ function Page() {
                     ]
                   }),
                   jsx('div', {
-                    className: 'min-h-0 flex-1',
-                    children: (searchLoading && q) || (isLoading && !q)
-                      ? jsx('div', { className: 'p-4 text-sm text-(--ui-text-tertiary)', children: 'Loading…' })
-                      : ((searchError && q) || (error && !q))
-                        ? jsx('div', { className: 'p-4 text-sm text-(--ui-error)', children: `Failed: ${(error || searchError)?.message ?? error ?? searchError}` })
-                        : jsx(SessionList, { sessions: q ? searchResults.map(r => ({ ...r, id: r.session_id })) : sessions, selected, onSelect: (id) => $selected.set(id), searchMode: !!q })
+                    className: 'flex items-center gap-1 border-b border-(--ui-stroke-secondary) px-2 py-1',
+                    children: [
+                      jsx('span', { className: 'text-[0.55rem] uppercase tracking-wide text-(--ui-text-quaternary)', children: 'Sort' }),
+                      jsx('button', {
+                        type: 'button',
+                        onClick: () => setSort('recent'),
+                        className: cn(
+                          'rounded-md px-1.5 py-0.5 text-[0.6rem] font-medium transition-colors',
+                          sort === 'recent' ? 'bg-(--ui-accent)/20 text-(--ui-accent)' : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
+                        ),
+                        children: 'recent'
+                      }),
+                      jsx('button', {
+                        type: 'button',
+                        onClick: () => setSort('failed'),
+                        className: cn(
+                          'rounded-md px-1.5 py-0.5 text-[0.6rem] font-medium transition-colors',
+                          sort === 'failed' ? 'bg-(--ui-error)/20 text-(--ui-error)' : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
+                        ),
+                        title: 'Worst sessions first: most failed tool calls',
+                        children: 'worst'
+                      })
+                    ]
                   }),
-                  !q && sessions.length > 0 && list?.total > sessions.length
+                  jsx('div', {
+                    className: 'min-h-0 flex-1',
+                    children: (searchLoading && searching) || (isLoading && !searching)
+                      ? jsx('div', { className: 'p-4 text-sm text-(--ui-text-tertiary)', children: 'Loading…' })
+                      : ((searchError && searching) || (error && !searching))
+                        ? jsx('div', { className: 'p-4 text-sm text-(--ui-error)', children: `Failed: ${(error || searchError)?.message ?? error ?? searchError}` })
+                        : jsx(SessionList, { sessions: searching ? searchResults.map(r => ({ ...r, id: r.session_id })) : sessions, selected, onSelect: (id) => $selected.set(id), searchMode: searching, showFailed: sort === 'failed' })
+                  }),
+                  !searching && sessions.length > 0 && list?.total > sessions.length
                     ? jsx('div', { className: 'border-t border-(--ui-stroke-secondary) p-1.5', children: jsx('button', {
                       type: 'button',
                       onClick: () => setLimit((n) => Math.min(500, n + 200)),

@@ -133,14 +133,62 @@ async def list_sessions(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     source: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, max_length=200),
+    sort: str = Query("recent", pattern="^(recent|failed)$"),
 ) -> dict:
-    """Session list with token/cache/cost aggregates."""
+    """Session list with token/cache/cost aggregates.
+
+    q: substring filter on session title (LIKE).
+    sort=failed: order by number of failed tool calls (Python-side
+    _detect_failure, the same detector the detail view uses) descending,
+    and attach a per-session failed_count.
+    """
     where, params = "", []
+    conds = []
     if source:
-        where = "WHERE source = ?"
+        conds.append("source = ?")
         params.append(source)
+    if q:
+        conds.append("title LIKE ?")
+        params.append(f"%{q}%")
+    if conds:
+        where = "WHERE " + " AND ".join(conds)
     try:
         conn = _connect()
+        if sort == "failed":
+            # Failure counts need the Python detector (SQL can't replicate
+            # it over non-JSON tool content). Scan once, sort in memory.
+            all_rows = conn.execute(
+                f"SELECT {_SESSION_COLS} FROM sessions {where}", params
+            ).fetchall()
+            trows = conn.execute(
+                "SELECT session_id, tool_name, content FROM messages "
+                "WHERE role = 'tool' AND tool_name IS NOT NULL"
+            ).fetchall()
+            failed_by_session: dict[str, int] = {}
+            for tr in trows:
+                failed, _ = _detect_failure(tr["tool_name"] or "", tr["content"])
+                if failed:
+                    failed_by_session[tr["session_id"]] = (
+                        failed_by_session.get(tr["session_id"], 0) + 1
+                    )
+            all_rows.sort(
+                key=lambda r: (
+                    failed_by_session.get(r["id"], 0),
+                    r["started_at"] or 0,
+                ),
+                reverse=True,
+            )
+            total = len(all_rows)
+            rows = all_rows[offset : offset + limit]
+            dicts = []
+            for r in rows:
+                d = _session_row_to_dict(r)
+                d["failed_count"] = failed_by_session.get(r["id"], 0)
+                dicts.append(d)
+            conn.close()
+            return {"total": total, "sessions": dicts}
+
         rows = conn.execute(
             f"SELECT {_SESSION_COLS} FROM sessions {where} "
             f"ORDER BY started_at DESC LIMIT ? OFFSET ?",
