@@ -29,7 +29,9 @@ if [ -f "$CONFIG" ]; then
       # Insert after the first "  enabled:" line (portable awk; BSD sed
       # lacks GNU's 0,/re/ range, so sed-based insertion silently no-ops).
       awk -v id="$PLUGIN_ID" '
-        /^  enabled:/ && !done { print; print "    - " id; done=1; next }
+        /^plugins:/ { in_plugins=1 }
+        in_plugins && /^[^ ]/ && !/^plugins:/ { in_plugins=0 }
+        in_plugins && /^  enabled:/ && !done { print; print "    - " id; done=1; next }
         { print }
       ' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
       if ! grep -q "^    - $PLUGIN_ID\$" "$CONFIG"; then
