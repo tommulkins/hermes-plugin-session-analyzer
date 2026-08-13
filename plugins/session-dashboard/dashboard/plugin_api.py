@@ -138,7 +138,7 @@ async def list_sessions(
 ) -> dict:
     """Session list with token/cache/cost aggregates.
 
-    q: substring filter on session title (LIKE).
+    q: substring filter on session title or id (LIKE).
     sort=failed: order by number of failed tool calls (Python-side
     _detect_failure, the same detector the detail view uses) descending,
     and attach a per-session failed_count.
@@ -149,7 +149,8 @@ async def list_sessions(
         conds.append("source = ?")
         params.append(source)
     if q:
-        conds.append("title LIKE ?")
+        conds.append("(title LIKE ? OR id LIKE ?)")
+        params.append(f"%{q}%")
         params.append(f"%{q}%")
     if conds:
         where = "WHERE " + " AND ".join(conds)
