@@ -404,6 +404,13 @@ async def session_detail(session_id: str) -> dict:
             + f"; {writes} file write{'s' if writes != 1 else ''} "
             f"({', '.join(f['path'].split('/')[-1] for f in files_sorted[:5]) or 'none'})"
         )
+        if subagents:
+            n_ok = sum(1 for sa in subagents if sa["state"] == "completed")
+            n_err = len(subagents) - n_ok
+            s["summary"] += (
+                f"; {len(subagents)} subagent{'s' if len(subagents) != 1 else ''}"
+                + (f" ({n_err} failed)" if n_err else "")
+            )
 
         s["tool_calls"] = tool_calls
         s["tool_breakdown"] = sorted(
@@ -411,6 +418,63 @@ async def session_detail(session_id: str) -> dict:
         )
         s["failed_calls"] = failed_calls
         s["files"] = files_sorted
+
+        # Subagents: async_delegations spawned from this session (delegate_task
+        # / parallel batches), plus the child sessions they produced.
+        drows = conn.execute(
+            "SELECT delegation_id, state, dispatched_at, completed_at, "
+            "event_json, result_json FROM async_delegations "
+            "WHERE origin_session = ? OR parent_session_id = ? "
+            "ORDER BY dispatched_at",
+            (session_id, session_id),
+        ).fetchall()
+        subagents: list[dict[str, Any]] = []
+        for dr in drows:
+            info: dict[str, Any] = {
+                "delegation_id": dr["delegation_id"],
+                "state": dr["state"] or "unknown",
+                "dispatched_at": dr["dispatched_at"],
+                "completed_at": dr["completed_at"],
+                "summary": "",
+                "model": "",
+                "api_calls": 0,
+                "duration_s": None,
+                "tokens": {},
+                "status": "",
+            }
+            try:
+                results = json.loads(dr["result_json"] or "{}").get("results") or []
+            except (json.JSONDecodeError, TypeError):
+                results = []
+            if results and isinstance(results[0], dict):
+                r0 = results[0]
+                info["summary"] = str(r0.get("summary") or "")[:400]
+                info["model"] = str(r0.get("model") or "")
+                info["api_calls"] = int(r0.get("api_calls") or 0)
+                info["duration_s"] = r0.get("duration_seconds")
+                info["status"] = str(r0.get("status") or "")
+                toks = r0.get("tokens")
+                if isinstance(toks, dict):
+                    info["tokens"] = {
+                        k: int(v) for k, v in toks.items() if isinstance(v, (int, float))
+                    }
+            if info["dispatched_at"] is not None and info["completed_at"] is not None:
+                try:
+                    info["duration_s"] = round(
+                        max(0.0, float(info["completed_at"]) - float(info["dispatched_at"])), 1
+                    )
+                except (TypeError, ValueError):
+                    pass
+            subagents.append(info)
+        s["subagents"] = subagents
+
+        # Child sessions (the unnamed rows subagents produce).
+        crows = conn.execute(
+            f"SELECT {_SESSION_COLS} FROM sessions WHERE parent_session_id = ? "
+            "ORDER BY started_at",
+            (session_id,),
+        ).fetchall()
+        s["child_sessions"] = [_session_row_to_dict(r) for r in crows]
 
         # Cost formatting.
         est = s.get("estimated_cost_usd")

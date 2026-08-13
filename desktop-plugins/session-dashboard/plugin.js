@@ -228,7 +228,7 @@ function SessionList({ sessions, selected, onSelect, searchMode, showFailed }) {
             jsxs('div', {
               className: 'flex items-center gap-1.5 min-w-0',
               children: [
-                jsx('span', { className: 'truncate font-medium', children: s.title || s.id.slice(9) }),
+                jsx('span', { className: 'truncate font-medium', children: s.title || (s.parent_session_id ? 'Subagent' : s.id.slice(9)) }),
                 showFailed && s.failed_count > 0
                   ? jsx(Badge, { variant: 'destructive', className: 'text-[0.6rem] shrink-0', children: `${s.failed_count} failed` })
                   : null,
@@ -406,7 +406,56 @@ function Detail({ session }) {
             ]
           })
         ]
-      })
+      }),
+      (session.subagents || []).length
+        ? jsxs('div', {
+          className: 'flex flex-col gap-1',
+          children: [
+            jsx('div', { className: 'text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1', children: `Subagents (${session.subagents.length})` }),
+            session.subagents.map((sa, i) => {
+              const label = sa.status === 'completed' ? sa.status : sa.state
+              const variant = label === 'completed' ? 'default' : label === 'error' || label === 'interrupted' ? 'destructive' : 'muted'
+              return jsxs('div', {
+                className: 'flex flex-col gap-0.5 rounded-md px-2 py-1.5 hover:bg-(--chrome-action-hover)',
+                children: [
+                  jsxs('div', {
+                    className: 'flex items-center gap-2 min-w-0',
+                    children: [
+                      jsx(Codicon, { name: label === 'completed' ? 'check' : 'error', size: '0.8rem', className: label === 'completed' ? 'text-(--ui-accent)' : 'text-(--ui-error)' }),
+                      jsx('span', { className: 'text-xs font-medium truncate', children: sa.model || sa.delegation_id }),
+                      jsx(Badge, { variant, className: 'text-[0.6rem] shrink-0', children: label }),
+                      sa.duration_s != null ? jsx('span', { className: 'ml-auto shrink-0 text-[0.6rem] text-(--ui-text-tertiary)', children: fmtDur(sa.duration_s) }) : null,
+                      sa.api_calls > 0 ? jsx('span', { className: 'shrink-0 text-[0.6rem] text-(--ui-text-tertiary)', children: `${sa.api_calls} call${sa.api_calls !== 1 ? 's' : ''}` }) : null,
+                      sa.tokens && sa.tokens.input > 0 ? jsx('span', { className: 'shrink-0 text-[0.6rem] text-(--ui-text-tertiary)', children: `${fmtTokens(sa.tokens.input)} in` }) : null
+                    ]
+                  }),
+                  sa.summary
+                    ? jsx('div', { className: 'pl-5 text-[0.625rem] text-(--ui-text-secondary) line-clamp-3', title: sa.summary, children: sa.summary })
+                    : null
+                ]
+              }, sa.delegation_id)
+            })
+          ]
+        })
+        : null,
+      (session.child_sessions || []).length
+        ? jsxs('div', {
+          className: 'flex flex-col gap-1',
+          children: [
+            jsx('div', { className: 'text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1', children: `Child sessions (${session.child_sessions.length})` }),
+            session.child_sessions.map((cs) => jsxs('div', {
+              className: 'flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[0.625rem] text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover)',
+              children: [
+                jsx('span', { className: 'truncate', children: cs.title || cs.id }),
+                jsxs('span', { className: 'shrink-0 flex items-center gap-2', children: [
+                  jsx('span', { children: `${cs.tool_call_count ?? 0} tools` }),
+                  jsx('span', { children: fmtCost(cs.estimated_cost_usd) })
+                ] })
+              ]
+            }, cs.id))
+          ]
+        })
+        : null
     ]
   })
 }
