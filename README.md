@@ -65,6 +65,12 @@ Open it via the sidebar **"Session Analyzer"** row (graph icon) or **⌘K →
 > The desktop UI hot-reloads, but the Python backend only mounts at startup —
 > the restart is required once after installing.
 
+## Install via your agent
+
+Already have an agent running (Hermes, Claude Code, Cursor, Codex)? Copy this prompt into a session:
+
+> Install the Session Analyzer plugin from https://github.com/tommulkins/hermes-plugin-session-analyzer following the README install instructions (clone and run install.sh), then restart Hermes Desktop so the backend mounts.
+
 ## Update
 
 ```bash
@@ -127,12 +133,6 @@ hermes-plugin-session-analyzer/
     ├── manifest.json                              # backend manifest
     └── plugin_api.py                              # FastAPI over state.db
 ```
-
-## Install via your agent
-
-Already have an agent running (Hermes, Claude Code, Cursor, Codex)? Copy this prompt into a session:
-
-> Install the Session Analyzer plugin from https://github.com/tommulkins/hermes-plugin-session-analyzer following the README install instructions (clone and run install.sh), then restart Hermes Desktop so the backend mounts.
 
 ## License
 
