@@ -392,35 +392,9 @@ async def session_detail(session_id: str) -> dict:
             f["tools"] = sorted(f["tools"])
         files_sorted = sorted(files.values(), key=lambda x: -x["writes"])
 
-        # Summary sentence (deterministic, no LLM).
-        n_tools = len(tool_calls)
-        distinct = len(by_tool)
-        writes = sum(1 for f in files_sorted if f["writes"] > 0)
-        n_failed = len(failed_calls)
-        s["summary"] = (
-            f"{n_tools} tool call{'s' if n_tools != 1 else ''} across "
-            f"{distinct} tool type{'s' if distinct != 1 else ''}"
-            + (f" ({n_failed} failed)" if n_failed else "")
-            + f"; {writes} file write{'s' if writes != 1 else ''} "
-            f"({', '.join(f['path'].split('/')[-1] for f in files_sorted[:5]) or 'none'})"
-        )
-        if subagents:
-            n_ok = sum(1 for sa in subagents if sa["state"] == "completed")
-            n_err = len(subagents) - n_ok
-            s["summary"] += (
-                f"; {len(subagents)} subagent{'s' if len(subagents) != 1 else ''}"
-                + (f" ({n_err} failed)" if n_err else "")
-            )
-
-        s["tool_calls"] = tool_calls
-        s["tool_breakdown"] = sorted(
-            by_tool.values(), key=lambda x: -x["count"]
-        )
-        s["failed_calls"] = failed_calls
-        s["files"] = files_sorted
-
         # Subagents: async_delegations spawned from this session (delegate_task
         # / parallel batches), plus the child sessions they produced.
+        # Must run before the summary so the count is available.
         drows = conn.execute(
             "SELECT delegation_id, state, dispatched_at, completed_at, "
             "event_json, result_json FROM async_delegations "
@@ -475,6 +449,33 @@ async def session_detail(session_id: str) -> dict:
             (session_id,),
         ).fetchall()
         s["child_sessions"] = [_session_row_to_dict(r) for r in crows]
+
+        # Summary sentence (deterministic, no LLM).
+        n_tools = len(tool_calls)
+        distinct = len(by_tool)
+        writes = sum(1 for f in files_sorted if f["writes"] > 0)
+        n_failed = len(failed_calls)
+        s["summary"] = (
+            f"{n_tools} tool call{'s' if n_tools != 1 else ''} across "
+            f"{distinct} tool type{'s' if distinct != 1 else ''}"
+            + (f" ({n_failed} failed)" if n_failed else "")
+            + f"; {writes} file write{'s' if writes != 1 else ''} "
+            f"({', '.join(f['path'].split('/')[-1] for f in files_sorted[:5]) or 'none'})"
+        )
+        if subagents:
+            n_ok = sum(1 for sa in subagents if sa["state"] == "completed")
+            n_err = len(subagents) - n_ok
+            s["summary"] += (
+                f"; {len(subagents)} subagent{'s' if len(subagents) != 1 else ''}"
+                + (f" ({n_err} failed)" if n_err else "")
+            )
+
+        s["tool_calls"] = tool_calls
+        s["tool_breakdown"] = sorted(
+            by_tool.values(), key=lambda x: -x["count"]
+        )
+        s["failed_calls"] = failed_calls
+        s["files"] = files_sorted
 
         # Cost formatting.
         est = s.get("estimated_cost_usd")
