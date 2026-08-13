@@ -69,7 +69,9 @@ Open it via the sidebar **"Session Analyzer"** row (graph icon) or **⌘K →
 
 Already have Hermes running? Copy this prompt into a session:
 
-> Install the Session Analyzer plugin from https://github.com/tommulkins/hermes-plugin-session-analyzer following the README install instructions (clone and run install.sh), then restart Hermes Desktop so the backend mounts.
+```text
+Install the Session Analyzer plugin from https://github.com/tommulkins/hermes-plugin-session-analyzer following the README install instructions (clone and run install.sh), then restart Hermes Desktop so the backend mounts.
+```
 
 ## Update
 
