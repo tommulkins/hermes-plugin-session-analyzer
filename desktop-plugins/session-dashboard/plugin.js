@@ -34,6 +34,8 @@ const DETAIL_KEY = (id) => [ID, 'detail', id]
 let rest = null
 const $selected = atom(null)
 const $expandedCalls = atom(new Set())
+// Right-click context menu: {x, y, sessionId, parentId} or null.
+const $contextMenu = atom(null)
 
 // Assemble a self-contained "ask AI" prompt from a session detail payload.
 // The user pastes this into a NEW session and picks any model — the prompt
@@ -218,6 +220,11 @@ function SessionList({ sessions, selected, onSelect, searchMode, showFailed }) {
         return jsxs('button', {
           type: 'button',
           onClick: () => onSelect(s.id),
+          onContextMenu: (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            $contextMenu.set({ x: e.clientX, y: e.clientY, sessionId: s.id, parentId: s.parent_session_id || null })
+          },
           className: cn(
             'flex w-full flex-col gap-1 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
             active
@@ -246,7 +253,10 @@ function SessionList({ sessions, selected, onSelect, searchMode, showFailed }) {
                 children: [
                   jsx('span', { children: fmtTime(s.started_at) }),
                   jsx('span', { children: `${s.tool_call_count ?? 0} tools` }),
-                  jsx('span', { className: 'tabular-nums', children: fmtCost(s.estimated_cost_usd) })
+                  jsx('span', { className: 'tabular-nums', children: fmtCost(s.estimated_cost_usd) }),
+                  s.parent_session_id && !s.title
+                    ? jsx('span', { className: 'truncate font-mono', title: `parent session: ${s.parent_session_id}`, children: `parent: ${s.parent_session_id}` })
+                    : null
                 ]
               })
           ]
@@ -460,6 +470,38 @@ function Detail({ session }) {
   })
 }
 
+// Right-click menu for session rows: copy the session id (and the parent's
+// id when the row is a subagent). Rendered fixed at the click position.
+function ContextMenu() {
+  const menu = useValue($contextMenu)
+  if (!menu) return null
+  const close = () => $contextMenu.set(null)
+  const item = (label, value) => jsx('button', {
+    type: 'button',
+    onClick: (e) => {
+      e.stopPropagation()
+      copyText(value)
+      host.notify({ kind: 'info', title: 'Copied', message: `${label} copied to clipboard`, durationMs: 3000 })
+      close()
+    },
+    className: 'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-(--ui-text-secondary) transition-colors hover:bg-(--chrome-action-hover) hover:text-foreground',
+    children: [
+      jsx(Codicon, { name: 'copy', size: '0.75rem', className: 'shrink-0' }),
+      jsx('span', { className: 'truncate', children: label })
+    ]
+  }, label)
+  return jsxs('div', {
+    className: 'fixed z-50 flex min-w-[200px] max-w-[340px] flex-col gap-0.5 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg) p-1 shadow-lg',
+    style: { left: menu.x, top: menu.y },
+    onContextMenu: (e) => { e.preventDefault(); e.stopPropagation() },
+    children: [
+      item(`Copy session id: ${menu.sessionId}`, menu.sessionId),
+      menu.parentId ? item(`Copy parent id: ${menu.parentId}`, menu.parentId) : null,
+      jsx('div', { className: 'px-2 py-0.5 text-[0.55rem] uppercase tracking-wide text-(--ui-text-quaternary)', children: menu.sessionId })
+    ]
+  })
+}
+
 function Page() {
   const selected = useValue($selected)
   // 100 by default; "Load more" bumps to 500 (the backend max).
@@ -533,6 +575,7 @@ function Page() {
 
   return jsxs('div', {
     className: 'flex h-full flex-col',
+    onClick: () => $contextMenu.set(null),
     children: [
       jsxs('div', {
         className: 'flex items-center gap-2 border-b border-(--ui-stroke-secondary) px-3 py-2',
@@ -662,7 +705,8 @@ function Page() {
                   : jsx('div', { className: 'flex h-full items-center justify-center text-sm text-(--ui-text-tertiary)', children: 'Select a session' })
               })
             ]
-          })
+          }),
+      jsx(ContextMenu, {})
     ]
   })
 }
