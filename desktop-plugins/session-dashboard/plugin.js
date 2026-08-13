@@ -601,7 +601,7 @@ function Page() {
                         // clear button would double up with ours.
                         type: 'text',
                         value: query,
-                        placeholder: contentMode ? 'Search message content…' : 'Filter by title…',
+                        placeholder: contentMode ? 'Search message content…' : 'Filter by title or id…',
                         onChange: (e) => setQuery(e.target.value),
                         className: 'min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-(--ui-text-quaternary)'
                       }),
