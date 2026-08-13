@@ -491,7 +491,7 @@ function ContextMenu() {
     ]
   }, label)
   return jsxs('div', {
-    className: 'fixed z-50 flex min-w-[200px] max-w-[340px] flex-col gap-0.5 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg) p-1 shadow-lg',
+    className: 'fixed z-50 flex min-w-[200px] max-w-[340px] flex-col gap-0.5 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-elevated) p-1 shadow-lg',
     style: { left: menu.x, top: menu.y },
     onContextMenu: (e) => { e.preventDefault(); e.stopPropagation() },
     children: [
