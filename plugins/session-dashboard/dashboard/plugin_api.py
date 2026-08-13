@@ -403,6 +403,37 @@ async def session_detail(session_id: str) -> dict:
             "ORDER BY dispatched_at",
             (session_id, session_id),
         ).fetchall()
+        # Child sessions (the unnamed rows subagents produce) — match each
+        # delegation to its child session by start time: the delegation's
+        # dispatched_at is within a couple of seconds of the child session's
+        # started_at (the session id's timestamp is UTC; dispatched_at is a
+        # local epoch — compare numerically, pick the closest child).
+        crows = conn.execute(
+            f"SELECT {_SESSION_COLS} FROM sessions WHERE parent_session_id = ? "
+            "ORDER BY started_at",
+            (session_id,),
+        ).fetchall()
+        child_rows = list(crows)
+        s["child_sessions"] = [_session_row_to_dict(r) for r in child_rows]
+
+        def _match_child(dispatch: Any) -> Optional[str]:
+            if dispatch is None:
+                return None
+            best: Optional[str] = None
+            best_gap: float = float("inf")
+            for cr in child_rows:
+                st = cr["started_at"]
+                if st is None:
+                    continue
+                try:
+                    gap = abs(float(st) - float(dispatch))
+                except (TypeError, ValueError):
+                    continue
+                if gap < best_gap:
+                    best_gap = gap
+                    best = cr["id"]
+            return best if best_gap <= 10 else None
+
         subagents: list[dict[str, Any]] = []
         for dr in drows:
             info: dict[str, Any] = {
@@ -416,6 +447,7 @@ async def session_detail(session_id: str) -> dict:
                 "duration_s": None,
                 "tokens": {},
                 "status": "",
+                "child_session_id": _match_child(dr["dispatched_at"]),
             }
             try:
                 results = json.loads(dr["result_json"] or "{}").get("results") or []
@@ -442,14 +474,6 @@ async def session_detail(session_id: str) -> dict:
                     pass
             subagents.append(info)
         s["subagents"] = subagents
-
-        # Child sessions (the unnamed rows subagents produce).
-        crows = conn.execute(
-            f"SELECT {_SESSION_COLS} FROM sessions WHERE parent_session_id = ? "
-            "ORDER BY started_at",
-            (session_id,),
-        ).fetchall()
-        s["child_sessions"] = [_session_row_to_dict(r) for r in crows]
 
         # Summary sentence (deterministic, no LLM).
         n_tools = len(tool_calls)

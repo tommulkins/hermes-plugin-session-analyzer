@@ -339,7 +339,7 @@ function FileRow({ f }) {
   })
 }
 
-function Detail({ session }) {
+function Detail({ session, onOpenSession }) {
   const tokens = [
     jsx(Stat, { key: 'in', label: 'input', value: fmtTokens(session.input_tokens), title: `input tokens: ${session.input_tokens ?? '—'}` }),
     jsx(Stat, { key: 'cache', label: 'cache read', value: fmtTokens(session.cache_read_tokens), title: `cache read tokens: ${session.cache_read_tokens ?? '—'}\ncache write: ${fmtTokens(session.cache_write_tokens)}` }),
@@ -425,8 +425,16 @@ function Detail({ session }) {
             session.subagents.map((sa, i) => {
               const label = sa.status === 'completed' ? sa.status : sa.state
               const variant = label === 'completed' ? 'default' : label === 'error' || label === 'interrupted' ? 'destructive' : 'muted'
-              return jsxs('div', {
-                className: 'flex flex-col gap-0.5 rounded-md px-2 py-1.5 hover:bg-(--chrome-action-hover)',
+              const clickable = !!sa.child_session_id
+              return jsxs('button', {
+                type: 'button',
+                disabled: !clickable,
+                onClick: clickable ? (e) => { e.stopPropagation(); onOpenSession(sa.child_session_id) } : undefined,
+                title: clickable ? `Open subagent session ${sa.child_session_id}` : 'No linked session',
+                className: cn(
+                  'flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors',
+                  clickable ? 'cursor-pointer hover:bg-(--chrome-action-hover)' : 'cursor-default'
+                ),
                 children: [
                   jsxs('div', {
                     className: 'flex items-center gap-2 min-w-0',
@@ -453,8 +461,11 @@ function Detail({ session }) {
           className: 'flex flex-col gap-1',
           children: [
             jsx('div', { className: 'text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1', children: `Child sessions (${session.child_sessions.length})` }),
-            session.child_sessions.map((cs) => jsxs('div', {
-              className: 'flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[0.625rem] text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover)',
+            session.child_sessions.map((cs) => jsxs('button', {
+              type: 'button',
+              onClick: (e) => { e.stopPropagation(); onOpenSession(cs.id) },
+              title: `Open child session ${cs.id}`,
+              className: 'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-[0.625rem] text-(--ui-text-tertiary) transition-colors hover:bg-(--chrome-action-hover) hover:text-foreground',
               children: [
                 jsx('span', { className: 'truncate', children: cs.title || cs.id }),
                 jsxs('span', { className: 'shrink-0 flex items-center gap-2', children: [
@@ -701,7 +712,7 @@ function Page() {
               jsx('div', {
                 className: 'min-h-0 flex-1 overflow-y-auto',
                 children: detail
-                  ? jsx(Detail, { session: detail })
+                  ? jsx(Detail, { session: detail, onOpenSession: (id) => $selected.set(id) })
                   : jsx('div', { className: 'flex h-full items-center justify-center text-sm text-(--ui-text-tertiary)', children: 'Select a session' })
               })
             ]
