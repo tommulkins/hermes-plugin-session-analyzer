@@ -13,7 +13,8 @@ one.
 
 - **Session list** — title, date, tool count, cost; **Load more** up to 500
 - **Search** — two modes:
-  - **Title filter** — live substring match as you type (searches all sessions)
+  - **Title filter** — live substring match on title or session id as you
+    type (searches all sessions)
   - **Content search** — toggle to `content` for FTS search over message text
     (the same index Hermes' own session search uses), with `>>>snippet<<<`
     context per match
@@ -24,9 +25,15 @@ one.
 - **Failed calls** — every failed tool call with its error string, click to
   expand and see the tool's arguments
 - **Files touched** — reads and writes, written files highlighted
+- **Subagents** — every subagent spawned by the session: model, status
+  (completed / error), summary, duration, calls, input tokens — click one to
+  jump to its own session detail. Child sessions listed with tool count and
+  cost; unnamed subagent rows are labeled `Subagent` with their parent id.
 - **Ask AI** — one click opens a new session with a ready-made analysis
   prompt (copied to your clipboard). Paste, pick your judge model, send.
   No API keys, no config — it uses your existing Hermes.
+
+![Subagents](assets/subagents.png)
 
 ## Requirements
 
