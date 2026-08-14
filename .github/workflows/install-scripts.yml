@@ -19,7 +19,7 @@ jobs:
     name: Windows PowerShell 5.1
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Bug 1 regression: a BOM-less UTF-8 ps1 with non-ASCII chars breaks
       # PS 5.1 parsing (reads ANSI). Pure-ASCII file must parse cleanly.
@@ -79,7 +79,7 @@ jobs:
     name: macOS / Linux install.sh
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run install.sh against fixture config
         shell: bash
         run: |
