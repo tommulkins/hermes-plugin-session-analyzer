@@ -1,0 +1,98 @@
+name: install-scripts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/install-scripts.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/install-scripts.yml'
+  workflow_dispatch:
+
+jobs:
+  windows-ps51:
+    name: Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Bug 1 regression: a BOM-less UTF-8 ps1 with non-ASCII chars breaks
+      # PS 5.1 parsing (reads ANSI). Pure-ASCII file must parse cleanly.
+      - name: Parse check (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$env:GITHUB_WORKSPACE\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          Write-Host "PS 5.1 parse: OK"
+
+      # Bug 2 regression: entry must land under plugins.enabled, NOT the
+      # first "enabled:" line anywhere in the file (e.g. checkpoints.enabled).
+      - name: Config insertion lands under plugins.enabled
+        shell: powershell
+        run: |
+          $env:HERMES_HOME = "$env:RUNNER_TEMP\hermes-home"
+          New-Item -ItemType Directory -Force -Path $env:HERMES_HOME | Out-Null
+          @"
+          checkpoints:
+            enabled: false
+            max_snapshots: 20
+          mcp_servers:
+            context7: {}
+          plugins:
+            enabled: []
+          "@ | Set-Content -Path "$env:HERMES_HOME\config.yaml" -Encoding UTF8
+
+          & "$env:GITHUB_WORKSPACE\install.ps1" | Out-Null
+
+          $cfg = Get-Content "$env:HERMES_HOME\config.yaml" -Raw
+          if ($cfg -notmatch 'checkpoints:\r?\n  enabled: false') {
+            Write-Error "checkpoints.enabled was corrupted"; exit 1
+          }
+          if ($cfg -notmatch 'plugins:\r?\n  enabled:\r?\n    - session-dashboard') {
+            Write-Error "session-dashboard not under plugins.enabled"; exit 1
+          }
+          Write-Host "Config insertion: OK"
+
+      # Idempotency: a second run must not duplicate the entry.
+      - name: Re-run is idempotent
+        shell: powershell
+        run: |
+          $env:HERMES_HOME = "$env:RUNNER_TEMP\hermes-home"
+          & "$env:GITHUB_WORKSPACE\install.ps1" | Out-Null
+          $count = (Select-String -Path "$env:HERMES_HOME\config.yaml" -Pattern '^    - session-dashboard$').Count
+          if ($count -ne 1) {
+            Write-Error "expected 1 entry, found $count"; exit 1
+          }
+          Write-Host "Idempotency: OK"
+
+  macos-linux:
+    name: macOS / Linux install.sh
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run install.sh against fixture config
+        shell: bash
+        run: |
+          export HERMES_HOME="$RUNNER_TEMP/hermes-home"
+          mkdir -p "$HERMES_HOME"
+          cat > "$HERMES_HOME/config.yaml" <<'EOF'
+          checkpoints:
+            enabled: false
+          plugins:
+            enabled: []
+          EOF
+          chmod +x install.sh
+          ./install.sh >/dev/null
+          grep -A2 '^plugins:' "$HERMES_HOME/config.yaml" | grep -q '^    - session-dashboard'
+          grep -A1 '^checkpoints:' "$HERMES_HOME/config.yaml" | grep -q 'enabled: false'
+          echo "install.sh: OK"
