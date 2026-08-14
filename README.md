@@ -143,6 +143,14 @@ hermes-plugin-session-analyzer/
     └── plugin_api.py                              # FastAPI over state.db
 ```
 
+## Support
+
+Found a bug, or have an idea for making Session Analyzer better? Open an
+issue — we read them all and tag fixes with release versions:
+
+- **Report issues:** https://github.com/tommulkins/hermes-plugin-session-analyzer/issues
+- **See releases:** https://github.com/tommulkins/hermes-plugin-session-analyzer/releases
+
 ## License
 
 MIT
