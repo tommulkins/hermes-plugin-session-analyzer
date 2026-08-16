@@ -201,9 +201,9 @@ function TokenBar({ input, output, cache }) {
       jsxs('div', {
         className: 'flex gap-3 text-[0.625rem] text-(--ui-text-tertiary)',
         children: [
-          jsx('span', { children: `in ${fmtTokens(input)}` }),
-          jsx('span', { className: 'opacity-70', children: `cache ${fmtTokens(cache)}` }),
-          jsx('span', { children: `out ${fmtTokens(output)}` })
+          jsx('span', { children: `in ${fmtTokens(input)} (${pct(input).toFixed(0)}%)` }),
+          jsx('span', { className: 'opacity-70', children: `cache ${fmtTokens(cache)} (${pct(cache).toFixed(0)}%)` }),
+          jsx('span', { children: `out ${fmtTokens(output)} (${pct(output).toFixed(0)}%)` })
         ]
       })
     ]
@@ -379,8 +379,9 @@ function FileRow({ f }) {
 }
 
 function Detail({ session, onOpenSession }) {
-  // Percentages of total tokens (input + cache read/write + output).
-  const tot = (session.input_tokens ?? 0) + (session.cache_read_tokens ?? 0) + (session.cache_write_tokens ?? 0) + (session.output_tokens ?? 0)
+  // Percentages of the three displayed token groups (input + cache read +
+  // output) — same denominator as TokenBar so both views agree.
+  const tot = (session.input_tokens ?? 0) + (session.cache_read_tokens ?? 0) + (session.output_tokens ?? 0)
   const pct = (v) => (tot > 0 ? Math.round(((v ?? 0) / tot) * 100) : 0)
   const tokens = [
     jsx(Stat, { key: 'in', label: 'input', value: `${fmtTokens(session.input_tokens)} (${pct(session.input_tokens)}%)`, title: `input tokens: ${session.input_tokens ?? '—'}` }),
