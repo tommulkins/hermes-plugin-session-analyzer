@@ -271,7 +271,18 @@ function ToolRow({ name, count, failed }) {
     className: 'flex items-center justify-between gap-2 rounded-md px-2 py-1 hover:bg-(--chrome-action-hover)',
     children: [
       jsxs('div', { className: 'flex items-center gap-1.5 min-w-0', children: [
-        jsx('span', { className: 'font-mono text-xs truncate', children: name }),
+        failed
+          ? jsx('button', {
+            type: 'button',
+            onClick: () => {
+              const el = document.getElementById(`failed-group-${name.replace(/[^a-zA-Z0-9_-]/g, '_')}`)
+              el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            },
+            title: `Jump to failed ${name} calls`,
+            className: 'flex items-center gap-1.5 min-w-0 font-mono text-xs truncate text-(--ui-error) hover:underline',
+            children: name
+          })
+          : jsx('span', { className: 'font-mono text-xs truncate', children: name }),
         failed ? jsx(Badge, { variant: 'destructive', className: 'text-[0.6rem] shrink-0', children: `${failed} failed` }) : null
       ] }),
       jsx('span', { className: 'text-xs tabular-nums text-(--ui-text-tertiary)', children: count })
@@ -292,35 +303,63 @@ function FailedCalls({ calls, all }) {
     else next.add(id)
     $expandedCalls.set(next)
   }
+  // Group by tool name (insertion order = first failure time), then the
+  // rows inside each group stay chronological (backend orders by timestamp).
+  const groups = []
+  const byName = new Map()
+  for (const c of calls.slice(0, 50)) {
+    if (!byName.has(c.name)) {
+      byName.set(c.name, [])
+      groups.push(c.name)
+    }
+    byName.get(c.name).push(c)
+  }
   return jsxs('div', {
-    className: 'flex flex-col gap-1',
+    className: 'flex flex-col gap-2',
     children: [
       jsx('div', { className: 'text-[0.625rem] uppercase tracking-wide text-(--ui-error) pb-1', children: `Failed calls (${calls.length})` }),
-      calls.slice(0, 50).map((c) => {
-        const isOpen = expanded.has(c.id + c.timestamp)
-        const args = argsByCall[c.id] || {}
+      groups.map((gname) => {
+        const g = byName.get(gname)
+        const gid = `failed-group-${gname.replace(/[^a-zA-Z0-9_-]/g, '_')}`
         return jsxs('div', {
-          className: 'flex flex-col gap-0.5 rounded-md px-2 py-1 cursor-pointer hover:bg-(--chrome-action-hover)',
-          onClick: () => toggle(c.id + c.timestamp),
+          id: gid,
+          className: 'flex flex-col gap-0.5 rounded-md border border-(--ui-stroke-secondary) p-1',
           children: [
             jsxs('div', {
-              className: 'flex items-center gap-2 min-w-0 text-left pointer-events-none',
+              className: 'flex items-center gap-1.5 px-1 py-0.5',
               children: [
-                jsx(Codicon, { name: isOpen ? 'chevron-down' : 'chevron-right', size: '0.7rem', className: 'shrink-0 text-(--ui-text-tertiary)' }),
-                jsx(Codicon, { name: 'error', size: '0.8rem', className: 'shrink-0 text-(--ui-error)' }),
-                jsx('span', { className: 'font-mono text-xs font-medium truncate', children: c.name }),
-                jsx('span', { className: 'ml-auto shrink-0 text-[0.6rem] text-(--ui-text-tertiary)', children: fmtTime(c.timestamp) })
+                jsx(Codicon, { name: 'error', size: '0.75rem', className: 'shrink-0 text-(--ui-error)' }),
+                jsx('span', { className: 'font-mono text-[0.6875rem] font-semibold', children: gname }),
+                jsx(Badge, { variant: 'destructive', className: 'text-[0.6rem] shrink-0', children: `${g.length}` })
               ]
             }),
-            c.error ? jsx('div', { className: 'pl-4 text-[0.625rem] text-(--ui-text-secondary) break-words pointer-events-none', children: c.error }) : null,
-            isOpen && Object.keys(args).length > 0
-              ? jsx('div', {
-                className: 'pl-4 font-mono text-[0.625rem] text-(--ui-text-tertiary) break-words whitespace-pre-wrap',
-                children: JSON.stringify(args, null, 1).slice(0, 800)
-              })
-              : null
+            g.map((c) => {
+              const isOpen = expanded.has(c.id + c.timestamp)
+              const args = argsByCall[c.id] || {}
+              return jsxs('div', {
+                className: 'flex flex-col gap-0.5 rounded-md px-2 py-1 cursor-pointer hover:bg-(--chrome-action-hover)',
+                onClick: () => toggle(c.id + c.timestamp),
+                children: [
+                  jsxs('div', {
+                    className: 'flex items-center gap-2 min-w-0 text-left pointer-events-none',
+                    children: [
+                      jsx(Codicon, { name: isOpen ? 'chevron-down' : 'chevron-right', size: '0.7rem', className: 'shrink-0 text-(--ui-text-tertiary)' }),
+                      jsx('span', { className: 'font-mono text-xs font-medium truncate', children: c.id ? c.id.slice(0, 24) : '(no id)' }),
+                      jsx('span', { className: 'ml-auto shrink-0 text-[0.6rem] text-(--ui-text-tertiary)', children: fmtTime(c.timestamp) })
+                    ]
+                  }),
+                  c.error ? jsx('div', { className: 'pl-4 text-[0.625rem] text-(--ui-text-secondary) break-words pointer-events-none', children: c.error }) : null,
+                  isOpen && Object.keys(args).length > 0
+                    ? jsx('div', {
+                      className: 'pl-4 font-mono text-[0.625rem] text-(--ui-text-tertiary) break-words whitespace-pre-wrap',
+                      children: JSON.stringify(args, null, 1).slice(0, 800)
+                    })
+                    : null
+                ]
+              }, c.id + c.timestamp)
+            })
           ]
-        }, c.id + c.timestamp)
+        }, gid)
       })
     ]
   })
@@ -340,10 +379,13 @@ function FileRow({ f }) {
 }
 
 function Detail({ session, onOpenSession }) {
+  // Percentages of total tokens (input + cache read/write + output).
+  const tot = (session.input_tokens ?? 0) + (session.cache_read_tokens ?? 0) + (session.cache_write_tokens ?? 0) + (session.output_tokens ?? 0)
+  const pct = (v) => (tot > 0 ? Math.round(((v ?? 0) / tot) * 100) : 0)
   const tokens = [
-    jsx(Stat, { key: 'in', label: 'input', value: fmtTokens(session.input_tokens), title: `input tokens: ${session.input_tokens ?? '—'}` }),
-    jsx(Stat, { key: 'cache', label: 'cache read', value: fmtTokens(session.cache_read_tokens), title: `cache read tokens: ${session.cache_read_tokens ?? '—'}\ncache write: ${fmtTokens(session.cache_write_tokens)}` }),
-    jsx(Stat, { key: 'out', label: 'output', value: fmtTokens(session.output_tokens), title: `output tokens: ${session.output_tokens ?? '—'}` }),
+    jsx(Stat, { key: 'in', label: 'input', value: `${fmtTokens(session.input_tokens)} (${pct(session.input_tokens)}%)`, title: `input tokens: ${session.input_tokens ?? '—'}` }),
+    jsx(Stat, { key: 'cache', label: 'cache read', value: `${fmtTokens(session.cache_read_tokens)} (${pct(session.cache_read_tokens)}%)`, title: `cache read tokens: ${session.cache_read_tokens ?? '—'}\ncache write: ${fmtTokens(session.cache_write_tokens)} (${pct(session.cache_write_tokens)}%)` }),
+    jsx(Stat, { key: 'out', label: 'output', value: `${fmtTokens(session.output_tokens)} (${pct(session.output_tokens)}%)`, title: `output tokens: ${session.output_tokens ?? '—'}` }),
     jsx(Stat, { key: 'cost', label: 'spend', value: fmtCost(session.estimated_cost_usd), title: session.cost_status ? `status: ${session.cost_status}` : undefined }),
     jsx(Stat, { key: 'dur', label: 'duration', value: fmtDur(session.duration_s) }),
     jsx(Stat, { key: 'msgs', label: 'msgs', value: session.message_count ?? '—' })
