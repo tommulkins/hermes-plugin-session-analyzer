@@ -399,6 +399,13 @@ function Detail({ session, onOpenSession }) {
         className: 'flex flex-col gap-0.5',
         children: [
           jsx('div', { className: 'text-sm font-semibold break-words', children: session.title || session.id }),
+          session.about
+            ? jsx('div', {
+              className: 'text-xs text-(--ui-text-secondary) break-words line-clamp-2',
+              title: session.about,
+              children: session.about
+            })
+            : null,
           jsxs('div', {
             className: 'flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.625rem] text-(--ui-text-tertiary)',
             children: [

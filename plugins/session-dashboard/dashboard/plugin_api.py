@@ -502,6 +502,21 @@ async def session_detail(session_id: str) -> dict:
         s["failed_calls"] = failed_calls
         s["files"] = files_sorted
 
+        # First user message = what the session was about (no LLM needed).
+        urow = conn.execute(
+            "SELECT content FROM messages WHERE session_id = ? AND role = 'user' "
+            "AND content IS NOT NULL AND content != '' "
+            "ORDER BY timestamp LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        about = (urow["content"] if urow else "") or ""
+        # Skip synthetic wrappers (delegation/system notices) that aren't a
+        # real user prompt; fall back to the raw first message.
+        about = about.strip()
+        if about.startswith("[ASYNC DELEGATION") or about.startswith("[CONTEXT COMPACTION"):
+            about = ""
+        s["about"] = about[:400] if about else ""
+
         # Cost formatting.
         est = s.get("estimated_cost_usd")
         act = s.get("actual_cost_usd")
