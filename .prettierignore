@@ -1,0 +1,7 @@
+node_modules
+pnpm-lock.yaml
+install.sh
+install.ps1
+.github/
+assets/
+*.png

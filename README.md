@@ -33,7 +33,7 @@ one.
   (completed / error), summary, duration, calls, input tokens — click one to
   jump to its own session detail. Child sessions listed with tool count and
   cost; unnamed subagent rows are labeled `Subagent` with their parent id.
-  
+
 ## Requirements
 
 - Hermes Desktop (the plugin registers a sidebar row + ⌘K command)
@@ -117,10 +117,10 @@ restart Hermes Desktop.
 Two cooperating halves, both read-only over the session store
 (`~/.hermes/state.db`):
 
-| Half | Location | What it does |
-|---|---|---|
-| Desktop plugin | `~/.hermes/desktop-plugins/session-dashboard/plugin.js` | UI: page, sidebar row, ⌘K, drag-resize divider, Ask AI |
-| Backend API | `~/.hermes/plugins/session-dashboard/dashboard/` | FastAPI routes over `state.db`: `/sessions`, `/sessions/{id}` with token/cost/failure aggregates |
+| Half           | Location                                                | What it does                                                                                     |
+| -------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Desktop plugin | `~/.hermes/desktop-plugins/session-dashboard/plugin.js` | UI: page, sidebar row, ⌘K, drag-resize divider, Ask AI                                           |
+| Backend API    | `~/.hermes/plugins/session-dashboard/dashboard/`        | FastAPI routes over `state.db`: `/sessions`, `/sessions/{id}` with token/cost/failure aggregates |
 
 The backend reads `sessions`, `messages`, and `session_model_usage` tables
 directly — it never writes. Token, cache, and cost figures are the same
