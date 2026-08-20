@@ -71,6 +71,22 @@ Open it via the sidebar **"Session Analyzer"** row (graph icon) or **⌘K →
 > The desktop UI hot-reloads, but the Python backend only mounts at startup —
 > the restart is required once after installing.
 
+### Multiple Hermes profiles
+
+The desktop UI half is shared, but the Python backend is **per-profile**. If
+you run Hermes under a profile (e.g. `hermes --profile web-dev`), the plugin
+only works in sessions for that profile once **both** are true:
+
+1. `~/.hermes/profiles/<profile>/plugins/session-dashboard/` exists (copy it
+   from `~/.hermes/plugins/session-dashboard/`), and
+2. `plugins.enabled` in `~/.hermes/profiles/<profile>/config.yaml` lists
+   `session-dashboard`.
+
+Without that, the sidebar row appears but every data call fails (the backend
+never mounted for that profile). The backend reads that profile's own session
+database, so a profile sees only its own sessions. Backend changes require a
+restart of that profile's Hermes instance.
+
 ## Install via Hermes
 
 Already have Hermes running? Copy this prompt into a session:
