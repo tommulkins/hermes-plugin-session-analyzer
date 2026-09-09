@@ -68,27 +68,43 @@ function buildAskPrompt(s) {
         s.reasoning_share != null
           ? ` — ${Math.round(s.reasoning_share * 100)}% of output`
           : ""
+      }${
+        s.reasoning_peak_share != null && s.reasoning_peak_share > 0.25
+          ? ` (single largest turn: ${Math.round(s.reasoning_peak_share * 100)}% of output — possible stuck loop)`
+          : ""
       }`,
     );
   }
-  const retryCount = (s.waste_events || []).filter(
-    (e) => e.type === "retry_503",
-  ).length;
-  const switchCount = (s.waste_events || []).filter(
-    (e) => e.type === "model_switch",
-  ).length;
-  const compactCount = (s.waste_events || []).filter(
-    (e) => e.type === "compaction",
-  ).length;
-  if (retryCount || switchCount || compactCount) {
-    const parts = [];
-    if (retryCount)
-      parts.push(`${retryCount}× 503 retry (full prompt re-billed each)`);
-    if (switchCount)
-      parts.push(`${switchCount}× model switch (prompt cache reset)`);
-    if (compactCount)
-      parts.push(`${compactCount}× context compaction (prompt cache reset)`);
+  const evs = s.waste_events || [];
+  if (evs.length) {
+    const groups = {};
+    for (const e of evs) {
+      (groups[e.type] = groups[e.type] || []).push(fmtTime(e.timestamp));
+    }
+    const label = {
+      retry_503: "503 retry",
+      model_switch: "model switch",
+      compaction: "compaction",
+    };
+    const parts = Object.entries(groups).map(
+      ([type, times]) =>
+        `${times.length}× ${label[type] || type} (cache reset / re-bill) at ${times.join(", ")}`,
+    );
     lines.push(`- Cache-reset / re-bill events: ${parts.join("; ")}`);
+  }
+  const pb = s.peer_baseline;
+  if (pb && pb.n > 0) {
+    lines.push(
+      `- Peer baseline (median of ${pb.n} recent sessions): cache hit rate ${
+        pb.cache_hit_rate_median != null
+          ? Math.round(pb.cache_hit_rate_median * 100) + "%"
+          : "n/a"
+      }, reasoning share ${
+        pb.reasoning_share_median != null
+          ? Math.round(pb.reasoning_share_median * 100) + "% of output"
+          : "n/a"
+      }. Compare this session's numbers against these medians.`,
+    );
   }
   lines.push(
     `- Spend: ${fmtCost(s.estimated_cost_usd)}${s.cost_status ? `  (${s.cost_status})` : ""}`,
@@ -139,7 +155,7 @@ function buildAskPrompt(s) {
     "1. What failed and why — the root cause of each failed tool call.",
   );
   lines.push(
-    "2. Waste-layer diagnosis. Classify where the token spend actually went before recommending anything — one primary layer from: (a) fresh-session baseline (tools/skills/memory always-on), (b) conversation growth (long history that should have been compressed or split), (c) side tangents that belong in /btw or separate sessions, (d) reasoning effort (high reasoning on routine turns), (e) cache churn (low cache hit rate, retries, model switches, compactions). Cite the metrics above as evidence — do not guess.",
+    "2. Waste-layer diagnosis. Classify where the token spend actually went before recommending anything — one primary layer from: (a) fresh-session baseline (tools/skills/memory always-on), (b) conversation growth (long history that should have been compressed or split), (c) side tangents that belong in /btw or separate sessions, (d) reasoning effort (high reasoning on routine turns), (e) cache churn (low cache hit rate, retries, model switches, compactions). Judge each metric against the peer baseline where given, not in a vacuum; cite the metrics as evidence — do not guess.",
   );
   lines.push(
     "3. Concrete Hermes config or workflow suggestions for THAT layer (e.g. compression thresholds, tools, model choice, prompt changes). Do not recommend deleting old sessions or 'cleaning up storage' — stored history costs nothing at inference time; that is a false optimization.",

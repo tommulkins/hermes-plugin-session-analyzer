@@ -520,18 +520,69 @@ async def session_detail(session_id: str) -> dict:
         # reasoning and reasoning_content often hold the SAME text (provider
         # duplicates) — take MAX of the two lengths, summing double-counts.
         crow = conn.execute(
-            "SELECT COALESCE(SUM(MAX(LENGTH(COALESCE(reasoning,'')),"
-            "LENGTH(COALESCE(reasoning_content,'')))), 0) "
-            "FROM messages WHERE session_id = ? AND role = 'assistant'",
+            "SELECT COALESCE(SUM(mx), 0) AS total, COALESCE(MAX(mx), 0) AS peak "
+            "FROM (SELECT MAX(LENGTH(COALESCE(reasoning,'')), "
+            "LENGTH(COALESCE(reasoning_content,''))) AS mx "
+            "FROM messages WHERE session_id = ? AND role = 'assistant')",
             (session_id,),
         ).fetchone()
-        reasoning_chars = crow[0] if crow else 0
+        reasoning_chars = crow["total"] if crow else 0
         s["reasoning_chars"] = reasoning_chars
         s["reasoning_tokens_est"] = reasoning_chars // 4
         out_t = s.get("output_tokens") or 0
         s["reasoning_share"] = (
-            round((reasoning_chars / 4) / out_t, 4) if out_t > 0 and reasoning_chars else None
+            round((reasoning_chars / 4) / out_t, 4)
+            if out_t > 0 and reasoning_chars
+            else None
         )
+        # Concentration: one turn producing most of the reasoning (a stuck
+        # loop) reads differently than reasoning spread across the session.
+        peak_chars = crow["peak"] if crow else 0
+        s["reasoning_peak_share"] = (
+            round((peak_chars / 4) / out_t, 4)
+            if out_t > 0 and peak_chars
+            else None
+        )
+
+        # Peer baseline: median cache hit rate / reasoning share over the 50
+        # most recent sessions with token data, so the Ask AI judge can call
+        # a value abnormal relative to this install instead of in a vacuum.
+        srows = conn.execute(
+            "SELECT id, input_tokens, cache_read_tokens, output_tokens "
+            "FROM sessions WHERE (input_tokens + cache_read_tokens) > 0 "
+            "ORDER BY started_at DESC LIMIT 50"
+        ).fetchall()
+        rates = sorted(
+            r["cache_read_tokens"] / (r["input_tokens"] + r["cache_read_tokens"])
+            for r in srows
+        )
+        shares = []
+        if srows:
+            out_by_id = {r["id"]: r["output_tokens"] for r in srows}
+            ph = ",".join("?" * len(srows))
+            rr = conn.execute(
+                f"SELECT m.session_id AS session_id, SUM(m.mx) AS chars FROM "
+                f"(SELECT session_id, MAX(LENGTH(COALESCE(reasoning,'')), "
+                f"LENGTH(COALESCE(reasoning_content,''))) AS mx FROM messages "
+                f"WHERE role = 'assistant' AND session_id IN ({ph}) "
+                f"GROUP BY session_id) m "
+                f"JOIN sessions s2 ON s2.id = m.session_id "
+                f"WHERE s2.output_tokens > 0 GROUP BY m.session_id",
+                [r["id"] for r in srows],
+            ).fetchall()
+            for row in rr:
+                out2 = out_by_id.get(row["session_id"])
+                if out2:
+                    shares.append(row["chars"] / 4 / out2)
+
+        def _median(vals: list[float]) -> Optional[float]:
+            return round(vals[len(vals) // 2], 4) if vals else None
+
+        s["peer_baseline"] = {
+            "n": len(srows),
+            "cache_hit_rate_median": _median(rates),
+            "reasoning_share_median": _median(shares),
+        }
 
         # Summary sentence (deterministic, no LLM).
         n_tools = len(tool_calls)
