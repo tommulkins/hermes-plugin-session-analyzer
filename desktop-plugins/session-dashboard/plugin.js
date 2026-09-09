@@ -56,8 +56,40 @@ function buildAskPrompt(s) {
     `- Messages: ${s.message_count ?? "?"}  ·  Tool calls: ${s.tool_call_count ?? "?"}`,
   );
   lines.push(
-    `- Tokens — input: ${fmtTokens(s.input_tokens)}  output: ${fmtTokens(s.output_tokens)}  cache read: ${fmtTokens(s.cache_read_tokens)}  cache write: ${fmtTokens(s.cache_write_tokens)}`,
+    `- Tokens — input: ${fmtTokens(s.input_tokens)}  output: ${fmtTokens(s.output_tokens)}  cache read: ${fmtTokens(s.cache_read_tokens)}  cache write: ${fmtTokens(s.cache_write_tokens)}  cache hit rate: ${
+      s.cache_hit_rate != null
+        ? Math.round(s.cache_hit_rate * 100) + "%"
+        : "n/a"
+    }`,
   );
+  if (s.reasoning_tokens_est > 0) {
+    lines.push(
+      `- Reasoning: ~${fmtTokens(s.reasoning_tokens_est)} tokens (estimated from stored reasoning text)${
+        s.reasoning_share != null
+          ? ` — ${Math.round(s.reasoning_share * 100)}% of output`
+          : ""
+      }`,
+    );
+  }
+  const retryCount = (s.waste_events || []).filter(
+    (e) => e.type === "retry_503",
+  ).length;
+  const switchCount = (s.waste_events || []).filter(
+    (e) => e.type === "model_switch",
+  ).length;
+  const compactCount = (s.waste_events || []).filter(
+    (e) => e.type === "compaction",
+  ).length;
+  if (retryCount || switchCount || compactCount) {
+    const parts = [];
+    if (retryCount)
+      parts.push(`${retryCount}× 503 retry (full prompt re-billed each)`);
+    if (switchCount)
+      parts.push(`${switchCount}× model switch (prompt cache reset)`);
+    if (compactCount)
+      parts.push(`${compactCount}× context compaction (prompt cache reset)`);
+    lines.push(`- Cache-reset / re-bill events: ${parts.join("; ")}`);
+  }
   lines.push(
     `- Spend: ${fmtCost(s.estimated_cost_usd)}${s.cost_status ? `  (${s.cost_status})` : ""}`,
   );
@@ -107,10 +139,10 @@ function buildAskPrompt(s) {
     "1. What failed and why — the root cause of each failed tool call.",
   );
   lines.push(
-    "2. How the session could have been more compact — token/cache usage, redundant work, context bloat.",
+    "2. Waste-layer diagnosis. Classify where the token spend actually went before recommending anything — one primary layer from: (a) fresh-session baseline (tools/skills/memory always-on), (b) conversation growth (long history that should have been compressed or split), (c) side tangents that belong in /btw or separate sessions, (d) reasoning effort (high reasoning on routine turns), (e) cache churn (low cache hit rate, retries, model switches, compactions). Cite the metrics above as evidence — do not guess.",
   );
   lines.push(
-    "3. Concrete Hermes config or workflow suggestions to reduce failures and cost next time (e.g. compression thresholds, tools, model choice, prompt changes).",
+    "3. Concrete Hermes config or workflow suggestions for THAT layer (e.g. compression thresholds, tools, model choice, prompt changes). Do not recommend deleting old sessions or 'cleaning up storage' — stored history costs nothing at inference time; that is a false optimization.",
   );
   lines.push(
     "4. Skills that could have helped — run skills_list and check whether an existing skill (or a skill the session should have triggered) would have avoided a failure or saved steps. Name the skill and what it would have changed.",
@@ -595,7 +627,11 @@ function Detail({ session, onOpenSession }) {
       key: "cache",
       label: "cache read",
       value: `${fmtTokens(session.cache_read_tokens)} (${pct(session.cache_read_tokens)}%)`,
-      title: `cache read tokens: ${session.cache_read_tokens ?? "—"}\ncache write: ${fmtTokens(session.cache_write_tokens)} (${pct(session.cache_write_tokens)}%)`,
+      title: `cache read tokens: ${session.cache_read_tokens ?? "—"}\ncache write: ${fmtTokens(session.cache_write_tokens)} (${pct(session.cache_write_tokens)}%)\n\ncache hit rate: ${
+        session.cache_hit_rate != null
+          ? (session.cache_hit_rate * 100).toFixed(0) + "% of prompt tokens"
+          : "n/a"
+      }`,
     }),
     jsx(Stat, {
       key: "out",
@@ -603,6 +639,18 @@ function Detail({ session, onOpenSession }) {
       value: `${fmtTokens(session.output_tokens)} (${pct(session.output_tokens)}%)`,
       title: `output tokens: ${session.output_tokens ?? "—"}`,
     }),
+    session.reasoning_tokens_est > 0
+      ? jsx(Stat, {
+          key: "reason",
+          label: "reasoning",
+          value: `${fmtTokens(session.reasoning_tokens_est)} (~${
+            session.reasoning_share != null
+              ? Math.round(session.reasoning_share * 100) + "% of out"
+              : "?"
+          })`,
+          title: `estimated from ${fmtTokens(session.reasoning_chars)} chars of stored reasoning text (÷4 chars/token)`,
+        })
+      : null,
     jsx(Stat, {
       key: "cost",
       label: "spend",
@@ -660,6 +708,28 @@ function Detail({ session, onOpenSession }) {
         className: "grid grid-cols-3 gap-2 sm:grid-cols-6",
         children: tokens,
       }),
+      (session.waste_events || []).length
+        ? jsxs("div", {
+            className:
+              "flex flex-wrap items-center gap-2 text-[0.625rem] text-(--ui-text-tertiary)",
+            children: [
+              jsx(Codicon, { name: "warning", size: "0.75rem" }),
+              jsx("span", { children: "cache-reset / re-bill events:" }),
+              ...session.waste_events.map((ev, i) =>
+                jsx(
+                  Badge,
+                  {
+                    variant: ev.type === "retry_503" ? "destructive" : "muted",
+                    className: "text-[0.6rem]",
+                    title: ev.detail,
+                    children: `${ev.type.replace("_", " ")} · ${fmtTime(ev.timestamp)}`,
+                  },
+                  i,
+                ),
+              ),
+            ],
+          })
+        : null,
       jsxs("div", {
         className: "flex items-center gap-2",
         children: [

@@ -120,6 +120,14 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         end = d.get("ended_at") or d.get("last_activity_at") or d.get("started_at")
         if end is not None:
             d["duration_s"] = round(max(0.0, end - d["started_at"]), 1)
+    # Cache hit rate: share of prompt tokens served from cache. A low rate on
+    # a long session means the context kept churning (retries, model
+    # switches, compression resets each re-bill the full prompt).
+    d["cache_hit_rate"] = None
+    ir = d.get("input_tokens") or 0
+    cr = d.get("cache_read_tokens") or 0
+    if ir + cr > 0:
+        d["cache_hit_rate"] = round(cr / (ir + cr), 4)
     return d
 
 
@@ -474,6 +482,56 @@ async def session_detail(session_id: str) -> dict:
                     pass
             subagents.append(info)
         s["subagents"] = subagents
+
+        # Waste-layer events (token-efficiency lens): 503 retries, model
+        # switches, and context compactions all re-bill or reset the prompt
+        # cache — each is a detectable marker in the message stream.
+        erows = conn.execute(
+            "SELECT role, content, display_kind, timestamp FROM messages "
+            "WHERE session_id = ? AND ("
+            "  content LIKE 'you hit a 503%'"
+            "  OR display_kind = 'model_switch'"
+            "  OR content LIKE '[CONTEXT COMPACTION%'"
+            ") ORDER BY timestamp",
+            (session_id,),
+        ).fetchall()
+        events = []
+        for er in erows:
+            content = er["content"] or ""
+            kind = er["display_kind"]
+            if content.startswith("you hit a 503"):
+                etype = "retry_503"
+            elif content.startswith("[CONTEXT COMPACTION"):
+                etype = "compaction"
+            elif kind == "model_switch":
+                # "[System: The active model ... changed to X via provider Y. …]"
+                etype = "model_switch"
+            else:
+                continue
+            events.append({
+                "type": etype,
+                "timestamp": er["timestamp"],
+                "detail": content[:120],
+            })
+        s["waste_events"] = events
+        # Assistant reasoning volume: sessions.reasoning_tokens is spotty, so
+        # sum stored reasoning text per message and estimate tokens at ~4
+        # chars/token (matches tokenizer output within ~10% for English).
+        # reasoning and reasoning_content often hold the SAME text (provider
+        # duplicates) — take MAX of the two lengths, summing double-counts.
+        crow = conn.execute(
+            "SELECT COALESCE(SUM(MAX(LENGTH(COALESCE(reasoning,'')),"
+            "LENGTH(COALESCE(reasoning_content,'')))), 0) "
+            "FROM messages WHERE session_id = ? AND role = 'assistant'",
+            (session_id,),
+        ).fetchone()
+        reasoning_chars = crow[0] if crow else 0
+        s["reasoning_chars"] = reasoning_chars
+        s["reasoning_tokens_est"] = reasoning_chars // 4
+        out_t = s.get("output_tokens") or 0
+        s["reasoning_share"] = (
+            round((reasoning_chars / 4) / out_t, 4) if out_t > 0 and reasoning_chars else None
+        )
 
         # Summary sentence (deterministic, no LLM).
         n_tools = len(tool_calls)
