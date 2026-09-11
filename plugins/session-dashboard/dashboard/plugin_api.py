@@ -341,9 +341,12 @@ async def session_detail(session_id: str) -> dict:
 
         # Tool results: role='tool' messages carry tool_name + result content.
         # Detect failures per call id so we can annotate tool calls and
-        # aggregate a per-tool failure count.
+        # aggregate a per-tool failure count. Timestamp + content length ride
+        # along: latency is (result_timestamp - call_timestamp) and the chars
+        # the result pushed into context are the only honest cost proxy
+        # (messages.token_count is NULL throughout state.db).
         rrows = conn.execute(
-            "SELECT tool_call_id, tool_name, content FROM messages "
+            "SELECT tool_call_id, tool_name, content, timestamp FROM messages "
             "WHERE session_id = ? AND role = 'tool' AND tool_name IS NOT NULL "
             "ORDER BY timestamp",
             (session_id,),
@@ -355,6 +358,8 @@ async def session_detail(session_id: str) -> dict:
                 "name": rr["tool_name"],
                 "failed": failed,
                 "error": err,
+                "ts": rr["timestamp"],
+                "chars": len(rr["content"] or ""),
                 "detail": _failure_detail(rr["tool_name"] or "", rr["content"])
                 if failed
                 else "",
@@ -436,6 +441,116 @@ async def session_detail(session_id: str) -> dict:
         for f in files.values():
             f["tools"] = sorted(f["tools"])
         files_sorted = sorted(files.values(), key=lambda x: -x["writes"])
+
+        # --- Loop fingerprints: calls repeated verbatim inside one session.
+        # A tool retried 5× is ONE fix (raise the timeout, stop re-reading the
+        # skill, shrink the command), not 5 independent failures — grouping
+        # turns a flat failure list into a work item.
+        prints: dict[tuple[str, str], dict[str, Any]] = {}
+        for tc in tool_calls:
+            try:
+                canon = json.dumps(tc["args"], sort_keys=True, default=str)[:160]
+            except (TypeError, ValueError):
+                canon = str(tc["args"])[:160]
+            fp = prints.setdefault(
+                (tc["name"], canon),
+                {
+                    "name": tc["name"],
+                    "args": canon,
+                    "count": 0,
+                    "failed": 0,
+                },
+            )
+            fp["count"] += 1
+            if tc["failed"]:
+                fp["failed"] += 1
+        loops = sorted(
+            (fp for fp in prints.values() if fp["count"] >= 3),
+            key=lambda x: (-x["count"], -x["failed"]),
+        )[:20]
+        s["loops"] = loops
+
+        # --- Per-tool latency × context bloat: the two costs a tool imposes
+        # that token totals hide. Latency joins the call to its result row by
+        # call id; result chars /4 estimates what it pushed into context.
+        tool_agg: dict[str, dict[str, Any]] = {}
+        for tc in tool_calls:
+            res = result_by_call.get(tc["id"]) or {}
+            st = tool_agg.setdefault(
+                tc["name"],
+                {"name": tc["name"], "count": 0, "lat": [], "chars": [], "failed": 0},
+            )
+            st["count"] += 1
+            if tc["failed"]:
+                st["failed"] += 1
+            t0, t1 = tc["timestamp"], res.get("ts")
+            if t0 and t1 and t1 >= t0:
+                st["lat"].append(t1 - t0)
+            if res.get("chars") is not None:
+                st["chars"].append(res["chars"])
+
+        def _pct(vals: list[float], q: float) -> Optional[float]:
+            if not vals:
+                return None
+            sv = sorted(vals)
+            return round(sv[min(len(sv) - 1, int(q * len(sv)))], 2)
+
+        s["tool_stats"] = sorted(
+            (
+                {
+                    "name": st["name"],
+                    "count": st["count"],
+                    "failed": st["failed"],
+                    "latency_p50": _pct(st["lat"], 0.5),
+                    "latency_p90": _pct(st["lat"], 0.9),
+                    "chars_p50": int(_pct(st["chars"], 0.5) or 0),
+                    "tokens_est": sum(st["chars"]) // 4,
+                }
+                for st in tool_agg.values()
+            ),
+            key=lambda x: -x["tokens_est"],
+        )
+
+        # --- Context curve: cumulative estimated tokens by message order, with
+        # the turn where growth spiked and the turn that burned the most
+        # reasoning (both name a specific turn to go look at).
+        crows = conn.execute(
+            "SELECT role, timestamp, "
+            "LENGTH(COALESCE(content,'')) AS clen, "
+            "LENGTH(COALESCE(reasoning,'')) AS rlen, "
+            "LENGTH(COALESCE(reasoning_content,'')) AS rclen "
+            "FROM messages WHERE session_id = ? ORDER BY timestamp, id",
+            (session_id,),
+        ).fetchall()
+        curve: list[int] = []
+        ctx = 0
+        peak_growth = {"index": None, "tokens": 0}
+        peak_reason = {"index": None, "tokens": 0}
+        tools_by_ts: dict[str, list[str]] = {}
+        for tc in tool_calls:
+            if tc["timestamp"]:
+                tools_by_ts.setdefault(str(round(tc["timestamp"], 1)), []).append(tc["name"])
+        for i, cr in enumerate(crows):
+            grow = (cr["clen"] or 0) // 4
+            ctx += grow
+            if grow > peak_growth["tokens"]:
+                peak_growth = {"index": i, "tokens": grow}
+            rtok = max(cr["rlen"] or 0, cr["rclen"] or 0) // 4
+            if rtok > peak_reason["tokens"]:
+                peak_reason = {
+                    "index": i,
+                    "tokens": rtok,
+                    "context_tokens": ctx,
+                    "timestamp": cr["timestamp"],
+                    "tools": tools_by_ts.get(str(round(cr["timestamp"] or 0, 1)), []),
+                }
+            curve.append(ctx)
+        # Downsample for a sparkline: at most ~60 points.
+        step = max(1, len(curve) // 60)
+        s["context_curve"] = curve[::step][-60:]
+        s["context_total_tokens"] = ctx
+        s["context_peak"] = peak_growth
+        s["reasoning_peak_turn"] = peak_reason
 
         # Subagents: async_delegations spawned from this session (delegate_task
         # / parallel batches), plus the child sessions they produced.
@@ -611,13 +726,10 @@ async def session_detail(session_id: str) -> dict:
                 if out2:
                     shares.append(row["chars"] / 4 / out2)
 
-        def _median(vals: list[float]) -> Optional[float]:
-            return round(vals[len(vals) // 2], 4) if vals else None
-
         s["peer_baseline"] = {
             "n": len(srows),
-            "cache_hit_rate_median": _median(rates),
-            "reasoning_share_median": _median(shares),
+            "cache_hit_rate_median": _pct(rates, 0.5),
+            "reasoning_share_median": _pct(shares, 0.5),
         }
 
         # Summary sentence (deterministic, no LLM).

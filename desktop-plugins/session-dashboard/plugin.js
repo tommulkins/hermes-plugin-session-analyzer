@@ -117,6 +117,52 @@ function buildAskPrompt(s) {
       `- ${t.name}: ${t.count}${t.failed ? ` (${t.failed} failed)` : ""}`,
     );
   }
+  const stats = (s.tool_stats || []).filter((t) => t.count >= 3);
+  if (stats.length) {
+    lines.push("");
+    lines.push(
+      "Tool cost (p50 latency / est. tokens the results pushed into context):",
+    );
+    for (const t of stats.slice(0, 10)) {
+      lines.push(
+        `- ${t.name}: ${fmtLat(t.latency_p50)} p50 (p90 ${fmtLat(t.latency_p90)}), ~${fmtTokens(
+          t.tokens_est,
+        )} tokens total, ~${fmtTokens(t.chars_p50 * 4)}/call`,
+      );
+    }
+  }
+  const loops = s.loops || [];
+  if (loops.length) {
+    lines.push("");
+    lines.push(
+      "Repeated calls (identical tool+args ≥3× — treat each as ONE problem, not N failures):",
+    );
+    for (const lp of loops.slice(0, 10)) {
+      lines.push(
+        `- ${lp.name} ×${lp.count}${lp.failed ? ` (${lp.failed} failed)` : ""}: ${lp.args.slice(0, 160)}`,
+      );
+    }
+  }
+  if (s.reasoning_peak_turn?.index != null || s.context_peak?.index != null) {
+    lines.push("");
+    lines.push("Context / reasoning hot spots:");
+    if (s.context_peak?.index != null) {
+      lines.push(
+        `- Biggest single context jump: message #${s.context_peak.index} added ~${fmtTokens(s.context_peak.tokens)} tokens.`,
+      );
+    }
+    if (s.reasoning_peak_turn?.index != null) {
+      lines.push(
+        `- Deepest reasoning: message #${s.reasoning_peak_turn.index}, ~${fmtTokens(
+          s.reasoning_peak_turn.tokens,
+        )} reasoning tokens${
+          (s.reasoning_peak_turn.tools || []).length
+            ? ` (ran: ${s.reasoning_peak_turn.tools.join(", ")})`
+            : ""
+        }.`,
+      );
+    }
+  }
   const fails = (s.failed_calls || []).slice(0, 20);
   if (fails.length) {
     lines.push("");
@@ -157,7 +203,7 @@ function buildAskPrompt(s) {
     "1. What failed and why — the root cause of each failed tool call.",
   );
   lines.push(
-    "2. Waste-layer diagnosis. Classify where the token spend actually went before recommending anything — one primary layer from: (a) fresh-session baseline (tools/skills/memory always-on), (b) conversation growth (long history that should have been compressed or split), (c) side tangents that belong in /btw or separate sessions, (d) reasoning effort (high reasoning on routine turns), (e) cache churn (low cache hit rate, retries, model switches, compactions). Judge each metric against the peer baseline where given, not in a vacuum; cite the metrics as evidence — do not guess.",
+    "2. Waste-layer diagnosis. Classify where the token spend actually went before recommending anything — one primary layer from: (a) fresh-session baseline (tools/skills/memory always-on), (b) conversation growth (long history that should have been compressed or split), (c) side tangents that belong in /btw or separate sessions, (d) reasoning effort (high reasoning on routine turns), (e) cache churn (low cache hit rate, retries, model switches, compactions), (f) loops (repeated identical calls — one root cause each, not N failures). Judge each metric against the peer baseline where given, not in a vacuum; cite the metrics as evidence — do not guess.",
   );
   lines.push(
     "3. Concrete Hermes config or workflow suggestions for THAT layer (e.g. compression thresholds, tools, model choice, prompt changes). Do not recommend deleting old sessions or 'cleaning up storage' — stored history costs nothing at inference time; that is a false optimization.",
@@ -272,6 +318,14 @@ function fmtDur(s) {
   if (s < 60) return Math.round(s) + "s";
   if (s < 3600) return Math.round(s / 60) + "m";
   return (s / 3600).toFixed(1) + "h";
+}
+
+// Sub-second precision matters for tool latency (most calls are <1s).
+function fmtLat(s) {
+  if (s == null) return "—";
+  if (s < 1) return s.toFixed(2) + "s";
+  if (s < 60) return Math.round(s) + "s";
+  return (s / 60).toFixed(1) + "m";
 }
 
 function Stat({ label, value, title }) {
@@ -434,10 +488,16 @@ function SessionList({ sessions, selected, onSelect, searchMode, showFailed }) {
   });
 }
 
-function ToolRow({ name, count, failed }) {
+function ToolRow({ name, count, failed, stats }) {
   return jsxs("div", {
     className:
       "flex items-center justify-between gap-2 rounded-md px-2 py-1 hover:bg-(--chrome-action-hover)",
+    title: stats
+      ? `${name}: ${count} calls${failed ? `, ${failed} failed` : ""}\n` +
+        `latency p50 ${fmtLat(stats.latency_p50)} · p90 ${fmtLat(stats.latency_p90)}\n` +
+        `result ~${fmtTokens(stats.tokens_est)} tokens back into context ` +
+        `(p50 ${fmtTokens(stats.chars_p50 * 4)}/call)`
+      : undefined,
     children: [
       jsxs("div", {
         className: "flex items-center gap-1.5 min-w-0",
@@ -473,6 +533,13 @@ function ToolRow({ name, count, failed }) {
         className: "text-xs tabular-nums text-(--ui-text-tertiary)",
         children: count,
       }),
+      stats
+        ? jsx("span", {
+            className:
+              "shrink-0 text-[0.6rem] tabular-nums text-(--ui-text-quaternary)",
+            children: `~${fmtTokens(stats.tokens_est)}`,
+          })
+        : null,
     ],
   });
 }
@@ -602,6 +669,80 @@ function FailedCalls({ calls, all }) {
           gid,
         );
       }),
+    ],
+  });
+}
+
+// Context growth as a filled sparkline — the shape is the insight (a steep
+// ramp means one turn dumped a lot in; a flat tail means the growth stalled).
+function Sparkline({ points, className }) {
+  if (!points || points.length < 2) return null;
+  const max = Math.max(...points, 1);
+  const w = 100;
+  const h = 20;
+  const step = w / (points.length - 1);
+  const coords = points.map(
+    (p, i) => `${(i * step).toFixed(1)},${(h - (p / max) * h).toFixed(1)}`,
+  );
+  return jsx("svg", {
+    viewBox: `0 0 ${w} ${h}`,
+    preserveAspectRatio: "none",
+    className: cn("h-5 w-full", className),
+    children: jsx("polyline", {
+      points: coords.join(" "),
+      fill: "none",
+      stroke: "var(--ui-accent)",
+      strokeWidth: 1.5,
+      vectorEffect: "non-scaling-stroke",
+    }),
+  });
+}
+
+// Calls repeated verbatim inside one session: one fix each, not N failures.
+function Loops({ loops }) {
+  if (!loops || loops.length === 0) return null;
+  return jsxs("div", {
+    className: "flex flex-col gap-1",
+    children: [
+      jsx("div", {
+        className:
+          "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
+        children: `Repeated calls (${loops.length})`,
+      }),
+      loops.map((lp, i) =>
+        jsxs(
+          "div",
+          {
+            className:
+              "flex items-center gap-2 rounded-md px-2 py-1 hover:bg-(--chrome-action-hover)",
+            title: lp.args,
+            children: [
+              jsx(Badge, {
+                variant: lp.failed === lp.count ? "destructive" : "muted",
+                className: "text-[0.6rem] shrink-0 tabular-nums",
+                children: `×${lp.count}`,
+              }),
+              jsx("span", {
+                className: "font-mono text-xs shrink-0",
+                children: lp.name,
+              }),
+              jsx("span", {
+                className:
+                  "font-mono text-[0.625rem] text-(--ui-text-tertiary) truncate",
+                children: lp.args,
+              }),
+              lp.failed
+                ? jsx("span", {
+                    className:
+                      "ml-auto shrink-0 text-[0.6rem] text-(--ui-error)",
+                    children: `${lp.failed} failed`,
+                  })
+                : null,
+            ],
+          },
+          i,
+        ),
+      ),
     ],
   });
 }
@@ -755,6 +896,52 @@ function Detail({ session, onOpenSession }) {
             ],
           })
         : null,
+      (session.context_curve || []).length > 1
+        ? jsxs("div", {
+            className: "flex flex-col gap-1",
+            children: [
+              jsxs("div", {
+                className:
+                  "flex items-center gap-2 text-[0.625rem] text-(--ui-text-tertiary)",
+                children: [
+                  jsx("span", { children: "context growth" }),
+                  jsx("span", {
+                    className: "ml-auto tabular-nums",
+                    children: `~${fmtTokens(session.context_total_tokens)} tokens of transcript`,
+                  }),
+                ],
+              }),
+              jsx(Sparkline, { points: session.context_curve }),
+              jsxs("div", {
+                className:
+                  "flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[0.625rem] text-(--ui-text-tertiary)",
+                children: [
+                  session.context_peak?.index != null
+                    ? jsx("span", {
+                        title:
+                          "the single message that added the most tokens to context",
+                        children: `biggest jump: msg #${session.context_peak.index} (+${fmtTokens(
+                          session.context_peak.tokens,
+                        )})`,
+                      })
+                    : null,
+                  session.reasoning_peak_turn?.index != null
+                    ? jsx("span", {
+                        className: "text-(--ui-text-quaternary)",
+                        children: `deepest reasoning: msg #${
+                          session.reasoning_peak_turn.index
+                        } (${fmtTokens(session.reasoning_peak_turn.tokens)})${
+                          (session.reasoning_peak_turn.tools || []).length
+                            ? ` · ${session.reasoning_peak_turn.tools.join(", ")}`
+                            : ""
+                        }`,
+                      })
+                    : null,
+                ],
+              }),
+            ],
+          })
+        : null,
       jsxs("div", {
         className: "flex items-center gap-2",
         children: [
@@ -800,7 +987,14 @@ function Detail({ session, onOpenSession }) {
                 ? session.tool_breakdown.map((t) =>
                     jsx(
                       ToolRow,
-                      { name: t.name, count: t.count, failed: t.failed },
+                      {
+                        name: t.name,
+                        count: t.count,
+                        failed: t.failed,
+                        stats: (session.tool_stats || []).find(
+                          (x) => x.name === t.name,
+                        ),
+                      },
                       t.name,
                     ),
                   )
@@ -834,6 +1028,7 @@ function Detail({ session, onOpenSession }) {
           }),
         ],
       }),
+      jsx(Loops, { loops: session.loops }),
       (session.subagents || []).length
         ? jsxs("div", {
             className: "flex flex-col gap-1",
