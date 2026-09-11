@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
@@ -32,50 +31,40 @@ WRITE_TOOLS = {"write_file", "patch"}
 ARTIFACT_TOOLS = {"image_generate", "text_to_speech"}
 
 
-def _trim_error(s: str, n: int = 120) -> str:
+def _trim_error(s: str, n: int = 120, ellipsis: str = "…") -> str:
     s = str(s).strip()
-    return s if len(s) <= n else s[: n - 1] + "…"
-
-
-_DETAIL_MAX = 700
-
-
-def _tail(s: str, n: int) -> str:
-    s = str(s).strip()
-    if len(s) <= n:
-        return s
-    return "…" + s[-(n - 1) :]
+    return s if len(s) <= n else s[: n - 1] + ellipsis
 
 
 def _failure_detail(tool_name: str, content: Any) -> str:
     """Best-effort 'what actually went wrong' from a failed tool result.
 
-    Prefers the structured error field (terminal BLOCKED/timed-out, patch
-    write denials, memory limit errors, …), then a per-result error for batch
-    tools (web_extract), then the tail of the raw text — for large terminal
-    output the meaningful part (stderr, exit note) sits at the end. The short
+    Structured error first (terminal BLOCKED/timed-out, patch write
+    denials, memory-limit errors), else the tail of the output — the
+    meaningful part (stderr, exit note) sits at the end. The short
     _detect_failure message keeps the row compact; this carries the story.
     """
     if not isinstance(content, str) or not content.strip():
         return ""
-    data = None
     try:
         data = json.loads(content)
     except (json.JSONDecodeError, TypeError):
-        pass
+        data = None
     if isinstance(data, dict):
         err = data.get("error") or data.get("message")
         if isinstance(err, str) and err.strip():
-            return _trim_error(err, _DETAIL_MAX)
+            return _trim_error(err, 700)
+        # Batch tools (web_extract, web_search): the per-result error is the
+        # failure text; the dict itself has no top-level error.
         results = data.get("results")
         if isinstance(results, list) and results and isinstance(results[0], dict):
             err = results[0].get("error")
             if isinstance(err, str) and err.strip():
-                return _trim_error(err, _DETAIL_MAX)
+                return _trim_error(err, 700)
         out = data.get("output")
         if isinstance(out, str) and out.strip():
-            return _tail(re.sub(r"\x1b\[[0-9;]*m", "", out), _DETAIL_MAX)
-    return _tail(re.sub(r"\x1b\[[0-9;]*m", "", content), _DETAIL_MAX)
+            return _trim_error(out, 700, ellipsis="…")
+    return _trim_error(content, 700, ellipsis="…")
 
 
 def _detect_failure(tool_name: str, result: Any) -> tuple[bool, str]:
