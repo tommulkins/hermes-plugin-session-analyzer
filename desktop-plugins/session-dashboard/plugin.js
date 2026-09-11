@@ -123,7 +123,9 @@ function buildAskPrompt(s) {
     lines.push("Failed tool calls (up to 20):");
     for (const f of fails) {
       lines.push(
-        `- ${f.name}${f.id ? ` [${f.id}]` : ""}: ${f.error || "no error text"}`,
+        `- ${f.name}${f.id ? ` [${f.id}]` : ""}: ${f.error || "no error text"}${
+          f.detail ? ` — ${f.detail.slice(0, 400)}` : ""
+        }`,
       );
     }
   }
@@ -571,6 +573,13 @@ function FailedCalls({ calls, all }) {
                             className:
                               "pl-4 text-[0.625rem] text-(--ui-text-secondary) break-words pointer-events-none",
                             children: c.error,
+                          })
+                        : null,
+                      isOpen && c.detail
+                        ? jsx("div", {
+                            className:
+                              "pl-4 font-mono text-[0.625rem] text-(--ui-error) break-words whitespace-pre-wrap pointer-events-none",
+                            children: c.detail,
                           })
                         : null,
                       isOpen && Object.keys(args).length > 0

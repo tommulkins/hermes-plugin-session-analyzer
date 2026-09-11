@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
@@ -34,6 +35,47 @@ ARTIFACT_TOOLS = {"image_generate", "text_to_speech"}
 def _trim_error(s: str, n: int = 120) -> str:
     s = str(s).strip()
     return s if len(s) <= n else s[: n - 1] + "…"
+
+
+_DETAIL_MAX = 700
+
+
+def _tail(s: str, n: int) -> str:
+    s = str(s).strip()
+    if len(s) <= n:
+        return s
+    return "…" + s[-(n - 1) :]
+
+
+def _failure_detail(tool_name: str, content: Any) -> str:
+    """Best-effort 'what actually went wrong' from a failed tool result.
+
+    Prefers the structured error field (terminal BLOCKED/timed-out, patch
+    write denials, memory limit errors, …), then a per-result error for batch
+    tools (web_extract), then the tail of the raw text — for large terminal
+    output the meaningful part (stderr, exit note) sits at the end. The short
+    _detect_failure message keeps the row compact; this carries the story.
+    """
+    if not isinstance(content, str) or not content.strip():
+        return ""
+    data = None
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    if isinstance(data, dict):
+        err = data.get("error") or data.get("message")
+        if isinstance(err, str) and err.strip():
+            return _trim_error(err, _DETAIL_MAX)
+        results = data.get("results")
+        if isinstance(results, list) and results and isinstance(results[0], dict):
+            err = results[0].get("error")
+            if isinstance(err, str) and err.strip():
+                return _trim_error(err, _DETAIL_MAX)
+        out = data.get("output")
+        if isinstance(out, str) and out.strip():
+            return _tail(re.sub(r"\x1b\[[0-9;]*m", "", out), _DETAIL_MAX)
+    return _tail(re.sub(r"\x1b\[[0-9;]*m", "", content), _DETAIL_MAX)
 
 
 def _detect_failure(tool_name: str, result: Any) -> tuple[bool, str]:
@@ -324,6 +366,9 @@ async def session_detail(session_id: str) -> dict:
                 "name": rr["tool_name"],
                 "failed": failed,
                 "error": err,
+                "detail": _failure_detail(rr["tool_name"] or "", rr["content"])
+                if failed
+                else "",
             }
 
         tool_calls: list[dict[str, Any]] = []
@@ -353,6 +398,7 @@ async def session_detail(session_id: str) -> dict:
                     "args": args if isinstance(args, dict) else {"raw": str(args)},
                     "failed": bool(res and res["failed"]),
                     "error": (res or {}).get("error", ""),
+                    "detail": (res or {}).get("detail", ""),
                 })
 
         # Aggregate by tool name.
@@ -371,6 +417,7 @@ async def session_detail(session_id: str) -> dict:
                     "timestamp": tc["timestamp"],
                     "id": tc["id"],
                     "error": tc["error"],
+                    "detail": tc["detail"],
                 })
             if tc["name"] in FILE_TOOLS or tc["name"] in WRITE_TOOLS:
                 path = (
