@@ -5,7 +5,8 @@
   "description": "Session Analyzer — Hermes desktop + backend plugin",
   "scripts": {
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:load": "node scripts/check-plugin-load.mjs desktop-plugins/session-dashboard/plugin.js"
   },
   "dependencies": {
     "prettier": "^3.9.6"

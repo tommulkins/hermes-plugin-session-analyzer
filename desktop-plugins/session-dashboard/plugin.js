@@ -868,12 +868,17 @@ function Detail({ session, onOpenSession }) {
                   "flex flex-wrap items-center gap-1.5 text-[0.625rem] text-(--ui-text-tertiary)",
                 children: [
                   jsx("span", {
+                    // NOTE: keep these labels free of the preposition that
+                    // opens an import clause, written directly before a quote
+                    // — the loader's unsupportedImports scan reads the ENTIRE
+                    // file (comments included) and such a sequence registers
+                    // as a bare specifier, hard-failing the plugin load.
                     children:
                       {
                         subagent: "spawned by",
-                        compaction: "continues from",
-                        continued: "follows on from",
-                      }[session.origin.kind] || "came from",
+                        compaction: "continuation of",
+                        continued: "follow-up to",
+                      }[session.origin.kind] || "linked to",
                   }),
                   jsx("button", {
                     type: "button",
