@@ -841,10 +841,51 @@ function Detail({ session, onOpenSession }) {
       jsxs("div", {
         className: "flex flex-col gap-0.5",
         children: [
-          jsx("div", {
-            className: "text-sm font-semibold break-words",
-            children: session.title || session.id,
+          jsxs("div", {
+            className: "flex items-start gap-2",
+            children: [
+              jsx("div", {
+                className: "flex-1 text-sm font-semibold break-words",
+                children: session.title || session.id,
+              }),
+              jsx("button", {
+                type: "button",
+                onClick: () =>
+                  host.navigate("/" + encodeURIComponent(session.id)),
+                className:
+                  "shrink-0 inline-flex items-center gap-1 rounded-md border border-(--ui-stroke-secondary) px-2 py-1 text-[0.6875rem] font-medium text-(--ui-text-secondary) transition-colors hover:border-(--ui-accent) hover:text-foreground",
+                title: `Open session ${session.id}`,
+                children: [
+                  jsx(Codicon, { name: "go-to-file", size: "0.75rem" }),
+                  "Open session",
+                ],
+              }),
+            ],
           }),
+          session.origin
+            ? jsxs("div", {
+                className:
+                  "flex flex-wrap items-center gap-1.5 text-[0.625rem] text-(--ui-text-tertiary)",
+                children: [
+                  jsx("span", {
+                    children:
+                      {
+                        subagent: "spawned by",
+                        compaction: "continues from",
+                        continued: "follows on from",
+                      }[session.origin.kind] || "came from",
+                  }),
+                  jsx("button", {
+                    type: "button",
+                    onClick: () => onOpenSession(session.origin.id),
+                    className:
+                      "font-mono text-(--ui-text-secondary) hover:text-foreground hover:underline truncate max-w-[22rem]",
+                    title: `Open ${session.origin.id}`,
+                    children: session.origin.title || session.origin.id,
+                  }),
+                ],
+              })
+            : null,
           session.about
             ? jsx("div", {
                 className:
@@ -1036,7 +1077,7 @@ function Detail({ session, onOpenSession }) {
               jsx("div", {
                 className:
                   "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
-                children: `Subagents (${session.subagents.length})`,
+                children: `Delegation records (${session.subagents.length})`,
               }),
               session.subagents.map((sa, i) => {
                 const label = sa.status === "completed" ? sa.status : sa.state;
@@ -1134,7 +1175,7 @@ function Detail({ session, onOpenSession }) {
               jsx("div", {
                 className:
                   "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
-                children: `Child sessions (${session.child_sessions.length})`,
+                children: `Spawned / continued (${session.child_sessions.length})`,
               }),
               session.child_sessions.map((cs) =>
                 jsxs(
@@ -1156,6 +1197,11 @@ function Detail({ session, onOpenSession }) {
                       jsxs("span", {
                         className: "shrink-0 flex items-center gap-2",
                         children: [
+                          jsx(Badge, {
+                            variant: "muted",
+                            className: "text-[0.55rem] shrink-0",
+                            children: cs.kind || "child",
+                          }),
                           jsx("span", {
                             children: `${cs.tool_call_count ?? 0} tools`,
                           }),

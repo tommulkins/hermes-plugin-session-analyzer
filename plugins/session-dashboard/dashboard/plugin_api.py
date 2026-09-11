@@ -575,6 +575,32 @@ async def session_detail(session_id: str) -> dict:
         child_rows = list(crows)
         s["child_sessions"] = [_session_row_to_dict(r) for r in child_rows]
 
+        # Lineage is NOT one relationship. `parent_session_id` is written by
+        # three different things: a delegate_task run (source 'subagent'), a
+        # /compress continuation (the child OPENS with the CONTEXT COMPACTION
+        # handoff), or a session the user continued in a fresh chat. Only the
+        # first is a subagent — 29 children here, 9 of them subagents.
+        def _lineage_kind(source: Optional[str], first_msg: str) -> str:
+            if source == "subagent":
+                return "subagent"
+            if (first_msg or "").startswith("[CONTEXT COMPACTION"):
+                return "compaction"
+            return "continued"
+
+        kid_ids = [r["id"] for r in child_rows if r["id"]]
+        kid_first: dict[str, str] = {}
+        if kid_ids:
+            ph = ",".join("?" * len(kid_ids))
+            # Bare columns ride along with MIN() in SQLite — the row that won.
+            for fr in conn.execute(
+                f"SELECT session_id, content FROM messages WHERE role = 'user' "
+                f"AND session_id IN ({ph}) GROUP BY session_id",
+                kid_ids,
+            ).fetchall():
+                kid_first[fr["session_id"]] = fr["content"] or ""
+        for cs in s["child_sessions"]:
+            cs["kind"] = _lineage_kind(cs.get("source"), kid_first.get(cs["id"], ""))
+
         def _match_child(dispatch: Any) -> Optional[str]:
             if dispatch is None:
                 return None
@@ -768,11 +794,30 @@ async def session_detail(session_id: str) -> dict:
         ).fetchone()
         about = (urow["content"] if urow else "") or ""
         # Skip synthetic wrappers (delegation/system notices) that aren't a
-        # real user prompt; fall back to the raw first message.
-        about = about.strip()
+        # real user prompt; fall back to the raw first message. Keep the raw
+        # value too — the compaction handoff is exactly what identifies a
+        # /compress continuation below.
+        first_user_raw = about.strip()
+        about = first_user_raw
         if about.startswith("[ASYNC DELEGATION") or about.startswith("[CONTEXT COMPACTION"):
             about = ""
         s["about"] = about[:400] if about else ""
+
+        # Where THIS session came from — a subagent run, a compaction
+        # continuation, or a continued chat. Carries the parent's title so the
+        # detail view can link straight back to it.
+        pid = s.get("parent_session_id")
+        s["origin"] = None
+        if pid:
+            prow = conn.execute(
+                "SELECT id, title, source FROM sessions WHERE id = ?", (pid,)
+            ).fetchone()
+            s["origin"] = {
+                "id": pid,
+                "title": (prow["title"] if prow else "") or "",
+                "source": (prow["source"] if prow else "") or "",
+                "kind": _lineage_kind(s.get("source"), first_user_raw),
+            }
 
         # Cost formatting.
         est = s.get("estimated_cost_usd")
