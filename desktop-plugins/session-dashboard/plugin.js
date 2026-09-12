@@ -28,6 +28,9 @@ import { useState } from "react";
 
 const ID = "session-dashboard";
 const DETAIL_KEY = (id) => [ID, "detail", id];
+// ToolRow + its header row must agree on the numeric column widths.
+const TOOL_COUNT_W = 36;
+const TOOL_TOKENS_W = 48;
 
 // Bound in register(); used by query fns so all data flows through ctx.rest
 // (namespace-scoped to /api/plugins/session-dashboard).
@@ -500,7 +503,7 @@ function ToolRow({ name, count, failed, stats }) {
       : undefined,
     children: [
       jsxs("div", {
-        className: "flex items-center gap-1.5 min-w-0",
+        className: "flex flex-1 items-center gap-1.5 min-w-0",
         children: [
           failed
             ? jsx("button", {
@@ -530,16 +533,18 @@ function ToolRow({ name, count, failed, stats }) {
         ],
       }),
       jsx("span", {
-        className: "text-xs tabular-nums text-(--ui-text-tertiary)",
+        className: "shrink-0 text-xs tabular-nums text-(--ui-text-tertiary)",
+        style: { width: TOOL_COUNT_W, textAlign: "right" },
         children: count,
       }),
-      stats
-        ? jsx("span", {
-            className:
-              "shrink-0 text-[0.6rem] tabular-nums text-(--ui-text-quaternary)",
-            children: `~${fmtTokens(stats.tokens_est)}`,
-          })
-        : null,
+      // Always rendered (empty when no stats) so the count column lines up
+      // across rows regardless of whether token estimates exist.
+      jsx("span", {
+        className:
+          "shrink-0 text-[0.6rem] tabular-nums text-(--ui-text-quaternary)",
+        style: { width: TOOL_TOKENS_W, textAlign: "right" },
+        children: stats ? `~${fmtTokens(stats.tokens_est)}` : "",
+      }),
     ],
   });
 }
@@ -575,6 +580,12 @@ function FailedCalls({ calls, all }) {
         className:
           "text-[0.625rem] uppercase tracking-wide text-(--ui-error) pb-1",
         children: `Failed calls (${calls.length})`,
+      }),
+      jsx("div", {
+        className:
+          "text-[0.625rem] leading-snug text-(--ui-text-quaternary) pb-1",
+        children:
+          "a failed call returned an error — the turn's tokens were spent and produced nothing, and the retry re-billed everything before it",
       }),
       groups.map((gname) => {
         const g = byName.get(gname);
@@ -708,6 +719,12 @@ function Loops({ loops }) {
         className:
           "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
         children: `Repeated calls (${loops.length})`,
+      }),
+      jsx("div", {
+        className:
+          "text-[0.625rem] leading-snug text-(--ui-text-quaternary) pb-1",
+        children:
+          "the same call with the same arguments 3+ times — the model was stuck retrying instead of changing approach; each one is one root cause, not N failures",
       }),
       loops.map((lp, i) =>
         jsxs(
@@ -903,7 +920,43 @@ function Detail({ session, onOpenSession }) {
             className:
               "flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.625rem] text-(--ui-text-tertiary)",
             children: [
-              jsx("span", { children: session.id }),
+              jsx("span", {
+                // Right-click → copy session id, same context menu as the
+                // session list rows.
+                onContextMenu: (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  $contextMenu.set({
+                    x: e.clientX,
+                    y: e.clientY,
+                    sessionId: session.id,
+                    parentId: session.parent_session_id || null,
+                  });
+                },
+                className:
+                  "cursor-context-menu rounded font-mono hover:text-(--ui-text-secondary)",
+                title: "Right-click to copy session id",
+                children: session.id,
+              }),
+              jsx("button", {
+                type: "button",
+                onClick: () => {
+                  copyText(session.id);
+                  host.notify({
+                    kind: "info",
+                    title: "Copied",
+                    message: `${session.id} copied to clipboard`,
+                    durationMs: 3000,
+                  });
+                },
+                className:
+                  "shrink-0 rounded p-0.5 text-(--ui-text-quaternary) transition-colors hover:text-foreground",
+                title: `Copy session id ${session.id}`,
+                children: jsx(Codicon, {
+                  name: "copy",
+                  size: "0.7rem",
+                }),
+              }),
               jsx("span", { children: session.source }),
               session.model ? jsx("span", { children: session.model }) : null,
               jsx("span", { children: fmtTime(session.started_at) }),
@@ -922,19 +975,47 @@ function Detail({ session, onOpenSession }) {
       }),
       (session.waste_events || []).length
         ? jsxs("div", {
-            className:
-              "flex flex-wrap items-center gap-2 text-[0.625rem] text-(--ui-text-tertiary)",
+            className: "flex flex-col gap-1",
             children: [
-              jsx(Codicon, { name: "warning", size: "0.75rem" }),
-              jsx("span", { children: "cache-reset / re-bill events:" }),
+              jsxs("div", {
+                className:
+                  "flex flex-wrap items-center gap-2 text-[0.625rem] text-(--ui-text-tertiary)",
+                children: [
+                  jsx(Codicon, { name: "warning", size: "0.75rem" }),
+                  jsx("span", {
+                    children:
+                      "cache-reset / re-bill events — each one re-bills the full prompt on the next call",
+                  }),
+                ],
+              }),
               ...session.waste_events.map((ev, i) =>
-                jsx(
-                  Badge,
+                jsxs(
+                  "div",
                   {
-                    variant: ev.type === "retry_503" ? "destructive" : "muted",
-                    className: "text-[0.6rem]",
-                    title: ev.detail,
-                    children: `${ev.type.replace("_", " ")} · ${fmtTime(ev.timestamp)}`,
+                    className:
+                      "flex items-baseline gap-2 rounded-md px-2 py-0.5 text-[0.625rem] hover:bg-(--chrome-action-hover)",
+                    children: [
+                      jsx(
+                        Badge,
+                        {
+                          variant:
+                            ev.type === "retry_503" ? "destructive" : "muted",
+                          className: "shrink-0 text-[0.6rem]",
+                          children: ev.type.replace("_", " "),
+                        },
+                        "t",
+                      ),
+                      jsx("span", {
+                        className:
+                          "shrink-0 tabular-nums text-(--ui-text-quaternary)",
+                        children: fmtTime(ev.timestamp),
+                      }),
+                      jsx("span", {
+                        className:
+                          "min-w-0 break-words text-(--ui-text-secondary)",
+                        children: ev.summary || ev.detail,
+                      }),
+                    ],
                   },
                   i,
                 ),
@@ -958,6 +1039,12 @@ function Detail({ session, onOpenSession }) {
                 ],
               }),
               jsx(Sparkline, { points: session.context_curve }),
+              jsx("div", {
+                className:
+                  "text-[0.625rem] leading-snug text-(--ui-text-quaternary)",
+                children:
+                  "every token still in context is re-billed on every call — a steeper line means each turn costs more",
+              }),
               jsxs("div", {
                 className:
                   "flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[0.625rem] text-(--ui-text-tertiary)",
@@ -965,22 +1052,21 @@ function Detail({ session, onOpenSession }) {
                   session.context_peak?.index != null
                     ? jsx("span", {
                         title:
-                          "the single message that added the most tokens to context",
+                          "the single message that added the most tokens to context — usually a huge tool result or a pasted document; the next call re-billed all of it",
                         children: `biggest jump: msg #${session.context_peak.index} (+${fmtTokens(
                           session.context_peak.tokens,
-                        )})`,
+                        )}) — one turn dumped this much into context at once`,
                       })
                     : null,
                   session.reasoning_peak_turn?.index != null
                     ? jsx("span", {
-                        className: "text-(--ui-text-quaternary)",
                         children: `deepest reasoning: msg #${
                           session.reasoning_peak_turn.index
                         } (${fmtTokens(session.reasoning_peak_turn.tokens)})${
                           (session.reasoning_peak_turn.tools || []).length
-                            ? ` · ${session.reasoning_peak_turn.tools.join(", ")}`
+                            ? ` while running ${session.reasoning_peak_turn.tools.join(", ")}`
                             : ""
-                        }`,
+                        } — the turn that thought the hardest; either a genuinely hard problem or the model spinning`,
                       })
                     : null,
                 ],
@@ -1018,60 +1104,77 @@ function Detail({ session, onOpenSession }) {
           }),
         ],
       }),
-      jsxs("div", {
-        className: "grid grid-cols-1 gap-4 lg:grid-cols-2",
+      jsx("div", {
+        className: "flex flex-col gap-1 min-h-0",
         children: [
-          jsxs("div", {
-            className: "flex flex-col gap-1 min-h-0",
-            children: [
-              jsx("div", {
+          jsx("div", {
+            className:
+              "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
+            children: "Tool calls",
+          }),
+          (session.tool_breakdown || []).length
+            ? jsxs("div", {
                 className:
-                  "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
-                children: "Tool calls",
-              }),
-              (session.tool_breakdown || []).length
-                ? session.tool_breakdown.map((t) =>
-                    jsx(
-                      ToolRow,
-                      {
-                        name: t.name,
-                        count: t.count,
-                        failed: t.failed,
-                        stats: (session.tool_stats || []).find(
-                          (x) => x.name === t.name,
-                        ),
-                      },
-                      t.name,
+                  "flex items-center gap-2 rounded-md px-2 text-[0.55rem] uppercase tracking-wide text-(--ui-text-quaternary)",
+                children: [
+                  jsx("span", {
+                    className: "flex-1 min-w-0",
+                    children: "tool",
+                  }),
+                  jsx("span", {
+                    className: "shrink-0",
+                    style: { width: TOOL_COUNT_W, textAlign: "right" },
+                    children: "calls",
+                  }),
+                  jsx("span", {
+                    className: "shrink-0",
+                    style: { width: TOOL_TOKENS_W, textAlign: "right" },
+                    children: "~tokens",
+                  }),
+                ],
+              })
+            : null,
+          (session.tool_breakdown || []).length
+            ? session.tool_breakdown.map((t) =>
+                jsx(
+                  ToolRow,
+                  {
+                    name: t.name,
+                    count: t.count,
+                    failed: t.failed,
+                    stats: (session.tool_stats || []).find(
+                      (x) => x.name === t.name,
                     ),
-                  )
-                : jsx("div", {
-                    className: "text-xs text-(--ui-text-tertiary)",
-                    children: "No tool calls",
-                  }),
-              jsx(FailedCalls, {
-                calls: session.failed_calls,
-                all: session.tool_calls,
+                  },
+                  t.name,
+                ),
+              )
+            : jsx("div", {
+                className: "text-xs text-(--ui-text-tertiary)",
+                children: "No tool calls",
               }),
-            ],
+          jsx(FailedCalls, {
+            calls: session.failed_calls,
+            all: session.tool_calls,
           }),
-          jsxs("div", {
-            className: "flex flex-col gap-1 min-h-0",
-            children: [
-              jsx("div", {
-                className:
-                  "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
-                children: "Files touched",
+        ],
+      }),
+      jsx("div", {
+        className: "flex flex-col gap-1 min-h-0",
+        children: [
+          jsx("div", {
+            className:
+              "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
+            children: "Files touched",
+          }),
+          (session.files || []).length
+            ? session.files
+                .slice(0, 100)
+                .map((f) => jsx(FileRow, { f }, f.path))
+            : jsx("div", {
+                className: "text-xs text-(--ui-text-tertiary)",
+                children: "No file paths in tool calls",
               }),
-              (session.files || []).length
-                ? session.files
-                    .slice(0, 100)
-                    .map((f) => jsx(FileRow, { f }, f.path))
-                : jsx("div", {
-                    className: "text-xs text-(--ui-text-tertiary)",
-                    children: "No file paths in tool calls",
-                  }),
-            ],
-          }),
         ],
       }),
       jsx(Loops, { loops: session.loops }),
@@ -1084,7 +1187,7 @@ function Detail({ session, onOpenSession }) {
                   "text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary) pb-1",
                 children: `Delegation records (${session.subagents.length})`,
               }),
-              session.subagents.map((sa, i) => {
+              session.subagents.map((sa) => {
                 const label = sa.status === "completed" ? sa.status : sa.state;
                 const variant =
                   label === "completed"
@@ -1347,7 +1450,11 @@ function Page() {
     const el = e.currentTarget;
     try {
       el.setPointerCapture(e.pointerId);
-    } catch {}
+    } catch {
+      // Pointer capture can fail if the pointer already left — dragging
+      // still works via the element's own events, so this is a deliberate
+      // no-op.
+    }
     el.dataset.dragging = "1";
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -1368,7 +1475,9 @@ function Page() {
     delete el.dataset.dragging;
     try {
       el.releasePointerCapture(e.pointerId);
-    } catch {}
+    } catch {
+      // Same no-op as above: capture may already be gone.
+    }
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
   };

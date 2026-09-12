@@ -1,0 +1,25 @@
+# Ruff: Python lint for the backend plugin API + tests.
+# Style is owned by nothing (no Python formatter in this repo — keep it that
+# way, prettier must not touch .py, see .prettierignore); ruff enforces
+# correctness only: errors, flakes, imports, upgrade opportunities.
+line-length = 88
+target-version = "py311"
+
+[lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # import sorting
+  "B",   # bugbear (common bug patterns)
+  "UP",  # pyupgrade
+]
+ignore = [
+  # plugin_api.py lazy-imports and conditional imports inside functions on purpose
+  "E402",
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E501"]  # test lines may exceed 88 for readability
+
+[lint.isort]
+known-first-party = ["plugin_api"]

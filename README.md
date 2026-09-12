@@ -20,9 +20,25 @@ one.
   "N failed" badge per row)
 - **Per-session detail** — input/output/cache tokens, spend, duration, message
   count, deterministic summary, tool-call breakdown
+- **Tool calls** — per-tool call counts and estimated tokens pushed back into
+  context, aligned columns with a labeled header row (`tool / calls / ~tokens`)
 - **Failed calls** — every failed tool call with its error string, click to
-  expand and see the tool's arguments
-- **Files touched** — reads and writes, written files highlighted
+  expand and see the tool's arguments _and_ the extracted failure detail
+  (structured error first, ANSI-stripped output tail)
+- **Files touched** — reads and writes, written files highlighted, its own
+  full-width section below the tool calls
+- **Cache-reset / re-bill events** — model switches, 503 retries, and
+  compactions each invalidate the prompt cache; each event is listed with a
+  one-line plain-language summary of what happened and what it costs you
+- **Context growth** — sparkline of cumulative transcript tokens with the
+  biggest single jump and the deepest-reasoning turn (annotated with the tools
+  that ran there), plus one-line explanations of why each matters
+- **Repeated calls** — identical (tool + arguments) calls 3+ times grouped as
+  one root-cause problem instead of N failures
+- **Session lineage** — open-session link, and origin labeling (spawned by /
+  continuation of / follow-up to) with click-through to the parent
+- **Copy session id** — right-click any session row, or the id line in the
+  detail panel, or click the copy icon next to it
 - **Ask AI** — one click opens a new session with a ready-made analysis
   prompt (copied to your clipboard). Paste, pick your judge model, send.
   No API keys, no config — it uses your existing Hermes.
@@ -153,9 +169,20 @@ hermes-plugin-session-analyzer/
 ├── install.sh                                     # macOS/Linux installer
 ├── install.ps1                                    # Windows installer
 ├── desktop-plugins/session-dashboard/plugin.js    # UI (hot-reloads)
-└── plugins/session-dashboard/dashboard/
-    ├── manifest.json                              # backend manifest
-    └── plugin_api.py                              # FastAPI over state.db
+├── plugins/session-dashboard/dashboard/
+│   ├── manifest.json                              # backend manifest
+│   └── plugin_api.py                              # FastAPI over state.db
+└── tests/
+    ├── test_plugin_api.py                         # unit tests (pytest)
+    └── test_acceptance_live.py                    # acceptance over real state.db
+```
+
+### Tests
+
+```bash
+~/.hermes/hermes-agent/venv/bin/pytest tests/ -q     # unit + acceptance
+pnpm lint                                            # plugin lint gate (loader traps, packaged-CSS gaps)
+pnpm lint:test                                       # lint rule self-tests
 ```
 
 ## Support

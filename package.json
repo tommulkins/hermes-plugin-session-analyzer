@@ -1,16 +1,24 @@
 {
   "name": "hermes-plugin-session-analyzer",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "Session Analyzer — Hermes desktop + backend plugin",
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "node scripts/lint-plugin.mjs",
-    "lint:strict": "node scripts/lint-plugin.mjs --strict",
+    "lint": "node scripts/lint-plugin.mjs && eslint .",
+    "lint:eslint": "eslint .",
+    "lint:python": "ruff check .",
+    "lint:strict": "node scripts/lint-plugin.mjs --strict && eslint .",
     "lint:test": "node --test scripts/lint-plugin.test.mjs"
   },
   "dependencies": {
     "prettier": "^3.9.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "eslint": "9.39.5",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "16.5.0"
   }
 }

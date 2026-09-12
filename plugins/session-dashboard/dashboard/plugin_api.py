@@ -14,9 +14,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -63,8 +64,37 @@ def _failure_detail(tool_name: str, content: Any) -> str:
                 return _trim_error(err, 700)
         out = data.get("output")
         if isinstance(out, str) and out.strip():
-            return _trim_error(out, 700, ellipsis="…")
-    return _trim_error(content, 700, ellipsis="…")
+            return _trim_error(_strip_ansi(out), 700, ellipsis="…")
+    return _trim_error(_strip_ansi(content), 700, ellipsis="…")
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(s: str) -> str:
+    """Terminal output embeds SGR color codes; stderr readability dies without
+    this (regressed once already — the ponytail pass dropped it)."""
+    return _ANSI_RE.sub("", s)
+
+
+def _event_summary(etype: str, content: str) -> str:
+    """One-line 'what happened here' for a cache-reset / re-bill marker.
+
+    These events matter because each one invalidates the per-conversation
+    prompt cache: the next call re-bills the full prompt at input rates.
+    The event row shows this summary so the section explains itself without
+    a hover (native tooltips lag and clip at the panel edge).
+    """
+    if etype == "model_switch":
+        m = re.search(r"changed to (\S+) via provider (\S+)", content or "")
+        if m:
+            return f"switched to {m.group(1)} — prompt cache rebuilt on next call"
+        return "model changed — prompt cache rebuilt on next call"
+    if etype == "retry_503":
+        return "upstream 503 — turn retried, full prompt re-billed"
+    if etype == "compaction":
+        return "context compressed — earlier turns replaced by a summary"
+    return (content or "")[:120]
 
 
 def _detect_failure(tool_name: str, result: Any) -> tuple[bool, str]:
@@ -171,8 +201,8 @@ async def health() -> dict:
 async def list_sessions(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    source: Optional[str] = Query(None),
-    q: Optional[str] = Query(None, max_length=200),
+    source: str | None = Query(None),
+    q: str | None = Query(None, max_length=200),
     sort: str = Query("recent", pattern="^(recent|failed)$"),
 ) -> dict:
     """Session list with token/cache/cost aggregates.
@@ -240,7 +270,7 @@ async def list_sessions(
         conn.close()
     except sqlite3.Error as e:
         logger.exception("session list query failed")
-        raise HTTPException(status_code=500, detail=f"query failed: {e}")
+        raise HTTPException(status_code=500, detail=f"query failed: {e}") from e
     return {
         "total": total,
         "sessions": [_session_row_to_dict(r) for r in rows],
@@ -300,7 +330,7 @@ async def search_sessions(
         conn.close()
     except sqlite3.Error as e:
         logger.exception("session search failed")
-        raise HTTPException(status_code=500, detail=f"search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"search failed: {e}") from e
 
     # One result per session: newest matching message wins; cap at limit.
     by_session: dict[str, dict[str, Any]] = {}
@@ -327,7 +357,9 @@ async def session_detail(session_id: str) -> dict:
         ).fetchone()
         if row is None:
             conn.close()
-            raise HTTPException(status_code=404, detail=f"session {session_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"session {session_id} not found"
+            )
 
         s = _session_row_to_dict(row)
 
@@ -380,7 +412,11 @@ async def session_detail(session_id: str) -> dict:
                 name = fn.get("name") or tc.get("name") or "unknown"
                 args_raw = fn.get("arguments") or "{}"
                 try:
-                    args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+                    args = (
+                        json.loads(args_raw)
+                        if isinstance(args_raw, str)
+                        else args_raw
+                    )
                 except (json.JSONDecodeError, TypeError):
                     args = {}
                 call_id = tc.get("id", "")
@@ -489,7 +525,7 @@ async def session_detail(session_id: str) -> dict:
             if res.get("chars") is not None:
                 st["chars"].append(res["chars"])
 
-        def _pct(vals: list[float], q: float) -> Optional[float]:
+        def _pct(vals: list[float], q: float) -> float | None:
             if not vals:
                 return None
             sv = sorted(vals)
@@ -529,7 +565,9 @@ async def session_detail(session_id: str) -> dict:
         tools_by_ts: dict[str, list[str]] = {}
         for tc in tool_calls:
             if tc["timestamp"]:
-                tools_by_ts.setdefault(str(round(tc["timestamp"], 1)), []).append(tc["name"])
+                tools_by_ts.setdefault(
+                    str(round(tc["timestamp"], 1)), []
+                ).append(tc["name"])
         for i, cr in enumerate(crows):
             grow = (cr["clen"] or 0) // 4
             ctx += grow
@@ -580,7 +618,7 @@ async def session_detail(session_id: str) -> dict:
         # /compress continuation (the child OPENS with the CONTEXT COMPACTION
         # handoff), or a session the user continued in a fresh chat. Only the
         # first is a subagent — 29 children here, 9 of them subagents.
-        def _lineage_kind(source: Optional[str], first_msg: str) -> str:
+        def _lineage_kind(source: str | None, first_msg: str) -> str:
             if source == "subagent":
                 return "subagent"
             if (first_msg or "").startswith("[CONTEXT COMPACTION"):
@@ -601,10 +639,10 @@ async def session_detail(session_id: str) -> dict:
         for cs in s["child_sessions"]:
             cs["kind"] = _lineage_kind(cs.get("source"), kid_first.get(cs["id"], ""))
 
-        def _match_child(dispatch: Any) -> Optional[str]:
+        def _match_child(dispatch: Any) -> str | None:
             if dispatch is None:
                 return None
-            best: Optional[str] = None
+            best: str | None = None
             best_gap: float = float("inf")
             for cr in child_rows:
                 st = cr["started_at"]
@@ -648,12 +686,22 @@ async def session_detail(session_id: str) -> dict:
                 toks = r0.get("tokens")
                 if isinstance(toks, dict):
                     info["tokens"] = {
-                        k: int(v) for k, v in toks.items() if isinstance(v, (int, float))
+                        k: int(v)
+                        for k, v in toks.items()
+                        if isinstance(v, int | float)
                     }
-            if info["dispatched_at"] is not None and info["completed_at"] is not None:
+            if (
+                info["dispatched_at"] is not None
+                and info["completed_at"] is not None
+            ):
                 try:
                     info["duration_s"] = round(
-                        max(0.0, float(info["completed_at"]) - float(info["dispatched_at"])), 1
+                        max(
+                            0.0,
+                            float(info["completed_at"])
+                            - float(info["dispatched_at"]),
+                        ),
+                        1,
                     )
                 except (TypeError, ValueError):
                     pass
@@ -689,6 +737,10 @@ async def session_detail(session_id: str) -> dict:
                 "type": etype,
                 "timestamp": er["timestamp"],
                 "detail": content[:120],
+                # One-line human summary: the pill shows this so the row
+                # explains itself without a hover (hover tooltips clip at
+                # the panel edge and go unread).
+                "summary": _event_summary(etype, content),
             })
         s["waste_events"] = events
         # Assistant reasoning volume: sessions.reasoning_tokens is spotty, so
@@ -768,7 +820,8 @@ async def session_detail(session_id: str) -> dict:
             f"{distinct} tool type{'s' if distinct != 1 else ''}"
             + (f" ({n_failed} failed)" if n_failed else "")
             + f"; {writes} file write{'s' if writes != 1 else ''} "
-            f"({', '.join(f['path'].split('/')[-1] for f in files_sorted[:5]) or 'none'})"
+            # ponytail: f-string can't wrap without breaking the literal
+            f"({', '.join(f['path'].split('/')[-1] for f in files_sorted[:5]) or 'none'})"  # noqa: E501
         )
         if subagents:
             n_ok = sum(1 for sa in subagents if sa["state"] == "completed")
@@ -799,7 +852,9 @@ async def session_detail(session_id: str) -> dict:
         # /compress continuation below.
         first_user_raw = about.strip()
         about = first_user_raw
-        if about.startswith("[ASYNC DELEGATION") or about.startswith("[CONTEXT COMPACTION"):
+        if about.startswith(
+            ("[ASYNC DELEGATION", "[CONTEXT COMPACTION")
+        ):
             about = ""
         s["about"] = about[:400] if about else ""
 
@@ -832,4 +887,4 @@ async def session_detail(session_id: str) -> dict:
         raise
     except sqlite3.Error as e:
         logger.exception("session detail query failed")
-        raise HTTPException(status_code=500, detail=f"query failed: {e}")
+        raise HTTPException(status_code=500, detail=f"query failed: {e}") from e

@@ -7,3 +7,4 @@ assets/
 *.png
 # Deliberately-malformed lint fixtures (broken-plugin.js must not parse).
 scripts/fixtures/
+*.py
