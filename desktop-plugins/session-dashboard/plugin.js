@@ -84,6 +84,10 @@ function buildAskPrompt(s) {
     for (const e of evs) {
       (groups[e.type] = groups[e.type] || []).push(fmtTime(e.timestamp));
     }
+    lines.push("");
+    lines.push(
+      "Cache-reset / re-bill events (each one invalidates the prompt cache — the next call re-bills the full prompt at input rates):",
+    );
     const label = {
       retry_503: "503 retry",
       model_switch: "model switch",
@@ -91,9 +95,9 @@ function buildAskPrompt(s) {
     };
     const parts = Object.entries(groups).map(
       ([type, times]) =>
-        `${times.length}× ${label[type] || type} (cache reset / re-bill) at ${times.join(", ")}`,
+        `${times.length}× ${label[type] || type} at ${times.join(", ")}`,
     );
-    lines.push(`- Cache-reset / re-bill events: ${parts.join("; ")}`);
+    lines.push(`- ${parts.join("; ")}`);
   }
   const pb = s.peer_baseline;
   if (pb && pb.n > 0) {
@@ -148,10 +152,12 @@ function buildAskPrompt(s) {
   }
   if (s.reasoning_peak_turn?.index != null || s.context_peak?.index != null) {
     lines.push("");
-    lines.push("Context / reasoning hot spots:");
+    lines.push(
+      "Context / reasoning hot spots (context is re-billed on every call, so a big jump raises the cost of EVERY later turn):",
+    );
     if (s.context_peak?.index != null) {
       lines.push(
-        `- Biggest single context jump: message #${s.context_peak.index} added ~${fmtTokens(s.context_peak.tokens)} tokens.`,
+        `- Biggest single context jump: message #${s.context_peak.index} added ~${fmtTokens(s.context_peak.tokens)} tokens in one turn — usually a huge tool result or pasted document.`,
       );
     }
     if (s.reasoning_peak_turn?.index != null) {
@@ -162,7 +168,7 @@ function buildAskPrompt(s) {
           (s.reasoning_peak_turn.tools || []).length
             ? ` (ran: ${s.reasoning_peak_turn.tools.join(", ")})`
             : ""
-        }.`,
+        }. Deep reasoning around failed tools = spinning; on a hard problem = well spent — judge which.`,
       );
     }
   }
@@ -203,7 +209,7 @@ function buildAskPrompt(s) {
   lines.push("");
   lines.push("Answer with:");
   lines.push(
-    "1. What failed and why — the root cause of each failed tool call.",
+    "1. What failed and why — the root cause of each failed tool call. For each failure, judge whether the model should have changed approach after the first failure instead of retrying the same call.",
   );
   lines.push(
     "2. Waste-layer diagnosis. Classify where the token spend actually went before recommending anything — one primary layer from: (a) fresh-session baseline (tools/skills/memory always-on), (b) conversation growth (long history that should have been compressed or split), (c) side tangents that belong in /btw or separate sessions, (d) reasoning effort (high reasoning on routine turns), (e) cache churn (low cache hit rate, retries, model switches, compactions), (f) loops (repeated identical calls — one root cause each, not N failures). Judge each metric against the peer baseline where given, not in a vacuum; cite the metrics as evidence — do not guess.",
