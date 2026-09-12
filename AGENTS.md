@@ -33,7 +33,7 @@ enforcement is the agent's job.
 ## Tool locations
 
 - `pkg-age-gate`, `osv-gate`, `audit-project`, `selftest`:
-  `~/.hermes/skills/supply-chain-hygiene/scripts/`
+  `~/.hermes/skills/devops/supply-chain-hygiene/scripts/`
   (`pkg-age-gate` also synced to `~/.local/bin/pkg-age-gate`)
 - `osv-scanner`: `~/.local/bin/osv-scanner`
 - `sfw`: Socket CLI
@@ -46,3 +46,21 @@ Before opening a PR or after any dependency change:
 
 - `audit-project .` — exit 0 = clean (lockfile, manager, ages, sfw)
 - `osv-gate .` — exit 0 = no known vulnerabilities
+
+## Verify (run before every commit)
+
+```bash
+pnpm lint                      # trap linter (scripts/lint-plugin.mjs) + eslint
+pnpm lint:python               # ruff check .  (ruff is a uv tool, not a pnpm dep)
+pnpm lint:test                 # self-tests for the trap-linter rules
+pnpm format:check              # prettier (never formats .py — see .prettierignore)
+~/.hermes/hermes-agent/venv/bin/pytest tests/ -q   # 30 tests; system python3 has no pytest
+```
+
+- `tests/test_plugin_api.py` — unit tests; loads `plugin_api.py` via
+  importlib (no FastAPI mount needed). New backend logic gets a test here.
+- `tests/test_acceptance_live.py` — acceptance over the REAL `state.db`
+  (Tom's convention: real data, not made-up inputs); skips when state.db is
+  absent so CI stays green. Changes to detail-payload shape get a test here.
+- If both fail and only a fixture is stale, fix the fixture — never weaken
+  an assertion to make a run pass.
