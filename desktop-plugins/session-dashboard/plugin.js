@@ -241,8 +241,8 @@ function copyText(text) {
 async function askAi(s) {
   const prompt = buildAskPrompt(s);
   // Toast FIRST — synchronously on click, before any await. The copy-only
-  // version worked because notify ran immediately; once session.create sat
-  // in front of it, a slow/hung RPC delayed (or killed) the toast entirely.
+  // version worked because notify ran immediately; a slow/hung host call sat
+  // in front of it and delayed (or killed) the toast entirely.
   const copied = copyText(prompt);
   host.notify(
     copied
@@ -260,35 +260,19 @@ async function askAi(s) {
         },
   );
 
-  // Bounded wait: never let a hung gateway RPC swallow the flow.
-  const withTimeout = (p, ms) =>
-    Promise.race([
-      p,
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`gateway timed out after ${ms}ms`)),
-          ms,
-        ),
-      ),
-    ]);
-
+  // Do NOT pre-create the session here. A raw host.request("session.create")
+  // bypasses the app's own create path, so nothing stamps the owner hint /
+  // tile / optimistic row that session-scoped RPCs (model pick, prompt.send,
+  // file.attach) resolve ownership from. On a connections-registry topology
+  // the renderer then fails closed with SessionOwnerResolutionError — the
+  // session exists on a backend nobody in the renderer can name.
+  //
+  // host.newChat() is the same door the sidebar "+" uses: it starts a fresh
+  // DRAFT (no session-scoped RPC, nothing to misroute) and the session is
+  // created by the app's own path at send time, with full owner bookkeeping.
+  // The seeded title is lost (auto-title takes over from the pasted prompt).
   try {
-    const created = await withTimeout(
-      host.request("session.create", {
-        title: `Session analysis: ${(s.title || s.id).slice(0, 60)}`,
-      }),
-      10000,
-    );
-    const sid = created?.session_id;
-    const stored = created?.stored_session_id;
-    if (!sid) throw new Error("no session_id returned");
-    // Long enough delay for the toast to be seen: the session mount clears
-    // notifications on arrival, so the toast dies at navigation no matter
-    // its durationMs. Give it ~2s of visible life before switching over.
-    setTimeout(
-      () => host.navigate("/" + encodeURIComponent(stored || sid)),
-      2000,
-    );
+    host.newChat();
   } catch (err) {
     host.notify({
       kind: "error",

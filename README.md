@@ -158,9 +158,9 @@ The backend reads `sessions`, `messages`, and `session_model_usage` tables
 directly — it never writes. Token, cache, and cost figures are the same
 numbers the app records per turn.
 
-**Ask AI** calls the gateway's `session.create` RPC (no prompt submit — you
-choose the model), copies a self-contained analysis prompt to your clipboard,
-and navigates you to the new session.
+**Ask AI** copies a self-contained analysis prompt to your clipboard and opens
+a fresh draft chat (the app's own new-chat door — no pre-created session, so
+ownership always resolves). Paste, choose the model, send.
 
 ## Files
 
