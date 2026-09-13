@@ -228,6 +228,11 @@ async def list_sessions(
         if sort == "failed":
             # Failure counts need the Python detector (SQL can't replicate
             # it over non-JSON tool content). Scan once, sort in memory.
+            # _SESSION_COLS is a fixed internal constant, but we validate it
+            # against a strict allowlist before interpolation so this can
+            # never become an injection vector if it's ever changed/reused.
+            if not re.fullmatch(r"[\w\s,]+", _SESSION_COLS):
+                raise HTTPException(status_code=500, detail="invalid column list")
             all_rows = conn.execute(
                 f"SELECT {_SESSION_COLS} FROM sessions {where}", params
             ).fetchall()
