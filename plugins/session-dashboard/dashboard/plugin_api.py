@@ -153,7 +153,8 @@ def _state_db_path() -> Path:
     else:
         p = Path(home) / "state.db"
     if not p.exists():
-        raise HTTPException(status_code=500, detail=f"state.db not found at {p}")
+        # No path echo in the response: reveals profile layout / HERMES_HOME.
+        raise HTTPException(status_code=500, detail="state.db not found")
     return p
 
 
@@ -172,6 +173,14 @@ _SESSION_COLS = """
     title, display_name, pinned, archived, parent_session_id, profile_name,
     last_activity_at
 """
+
+# Interpolated into f-string SQL at four sites below. It's a fixed module
+# constant — no injection path today — but validate it once at import so a
+# future edit (or a copy of the pattern fed unsafe input) fails fast instead
+# of becoming an injection vector. [\w\s,] admits identifiers, whitespace and
+# commas only: no ;, --, quotes, parens or comments survive.
+if not re.fullmatch(r"[\w\s,]+", _SESSION_COLS):
+    raise RuntimeError("_SESSION_COLS failed SQL column allowlist")
 
 
 def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -275,7 +284,7 @@ async def list_sessions(
         conn.close()
     except sqlite3.Error as e:
         logger.exception("session list query failed")
-        raise HTTPException(status_code=500, detail=f"query failed: {e}") from e
+        raise HTTPException(status_code=500, detail="session list query failed") from e
     return {
         "total": total,
         "sessions": [_session_row_to_dict(r) for r in rows],
@@ -335,7 +344,7 @@ async def search_sessions(
         conn.close()
     except sqlite3.Error as e:
         logger.exception("session search failed")
-        raise HTTPException(status_code=500, detail=f"search failed: {e}") from e
+        raise HTTPException(status_code=500, detail="search failed") from e
 
     # One result per session: newest matching message wins; cap at limit.
     by_session: dict[str, dict[str, Any]] = {}
@@ -892,4 +901,6 @@ async def session_detail(session_id: str) -> dict:
         raise
     except sqlite3.Error as e:
         logger.exception("session detail query failed")
-        raise HTTPException(status_code=500, detail=f"query failed: {e}") from e
+        raise HTTPException(
+            status_code=500, detail="session detail query failed"
+        ) from e
