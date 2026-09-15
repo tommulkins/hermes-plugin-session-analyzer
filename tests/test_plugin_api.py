@@ -18,7 +18,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 MODULE_PATH = (
-    REPO / "plugins" / "session-dashboard" / "dashboard" / "plugin_api.py"
+    REPO / "dashboard" / "plugin_api.py"
 )
 
 

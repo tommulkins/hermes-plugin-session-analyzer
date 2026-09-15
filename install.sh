@@ -12,13 +12,13 @@ echo "→ Installing Session Stats into $HERMES_HOME"
 
 # 1. Desktop JS plugin (hot-reloads; no restart needed for the UI side)
 mkdir -p "$HERMES_HOME/desktop-plugins/$PLUGIN_ID"
-cp "$SRC_DIR/desktop-plugins/$PLUGIN_ID/plugin.js" "$HERMES_HOME/desktop-plugins/$PLUGIN_ID/plugin.js"
+cp "$SRC_DIR/desktop/plugin.js" "$HERMES_HOME/desktop-plugins/$PLUGIN_ID/plugin.js"
 echo "  ✓ desktop-plugins/$PLUGIN_ID/plugin.js"
 
 # 2. Python backend (mounted at the next Hermes Desktop restart)
 mkdir -p "$HERMES_HOME/plugins/$PLUGIN_ID/dashboard"
-cp "$SRC_DIR/plugins/$PLUGIN_ID/dashboard/manifest.json" "$HERMES_HOME/plugins/$PLUGIN_ID/dashboard/"
-cp "$SRC_DIR/plugins/$PLUGIN_ID/dashboard/plugin_api.py" "$HERMES_HOME/plugins/$PLUGIN_ID/dashboard/"
+cp "$SRC_DIR/dashboard/manifest.json" "$HERMES_HOME/plugins/$PLUGIN_ID/dashboard/"
+cp "$SRC_DIR/dashboard/plugin_api.py" "$HERMES_HOME/plugins/$PLUGIN_ID/dashboard/"
 echo "  ✓ plugins/$PLUGIN_ID/dashboard/{manifest.json,plugin_api.py}"
 
 # 3. Enable in config.yaml (plugins.enabled) if not already listed

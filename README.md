@@ -168,10 +168,11 @@ ownership always resolves). Paste, choose the model, send.
 hermes-plugin-session-analyzer/
 ├── install.sh                                     # macOS/Linux installer
 ├── install.ps1                                    # Windows installer
-├── desktop-plugins/session-dashboard/plugin.js    # UI (hot-reloads)
-├── plugins/session-dashboard/dashboard/
+├── desktop/plugin.js                              # UI (hot-reloads)
+├── dashboard/
 │   ├── manifest.json                              # backend manifest
 │   └── plugin_api.py                              # FastAPI over state.db
+├── plugin.yaml                                    # native manifest (plugin catalog)
 └── tests/
     ├── test_plugin_api.py                         # unit tests (pytest)
     └── test_acceptance_live.py                    # acceptance over real state.db

@@ -38,14 +38,14 @@ Write-Host "-> Installing Session Analyzer into $hermesHome"
 # 1. Desktop JS plugin (hot-reloads; no restart needed for the UI side)
 $desktopTarget = Join-Path $hermesHome "desktop-plugins\$pluginId"
 New-Item -ItemType Directory -Force -Path $desktopTarget | Out-Null
-Copy-Item -Force (Join-Path $srcDir "desktop-plugins\$pluginId\plugin.js") (Join-Path $desktopTarget 'plugin.js')
+Copy-Item -Force (Join-Path $srcDir "desktop\plugin.js") (Join-Path $desktopTarget 'plugin.js')
 Write-Host "  [x] desktop-plugins\$pluginId\plugin.js"
 
 # 2. Python backend (mounted at the next Hermes Desktop restart)
 $backendTarget = Join-Path $hermesHome "plugins\$pluginId\dashboard"
 New-Item -ItemType Directory -Force -Path $backendTarget | Out-Null
-Copy-Item -Force (Join-Path $srcDir "plugins\$pluginId\dashboard\manifest.json") $backendTarget
-Copy-Item -Force (Join-Path $srcDir "plugins\$pluginId\dashboard\plugin_api.py") $backendTarget
+Copy-Item -Force (Join-Path $srcDir "dashboard\manifest.json") $backendTarget
+Copy-Item -Force (Join-Path $srcDir "dashboard\plugin_api.py") $backendTarget
 Write-Host "  [x] plugins\$pluginId\dashboard\{manifest.json,plugin_api.py}"
 
 # 3. Enable in config.yaml (plugins.enabled) if not already listed

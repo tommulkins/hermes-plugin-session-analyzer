@@ -20,8 +20,8 @@ const arg = (name, fallback) => {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 };
 
-const JS = arg("--js", "desktop-plugins/session-dashboard/plugin.js");
-const PY = arg("--py", "plugins/session-dashboard/dashboard/plugin_api.py");
+const JS = arg("--js", "desktop/plugin.js");
+const PY = arg("--py", "dashboard/plugin_api.py");
 const strict = process.argv.includes("--strict");
 
 const results = [];
