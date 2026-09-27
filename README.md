@@ -7,6 +7,11 @@ one.
 
 ![Session Analyzer](assets/screenshot.png)
 
+**How to use it well:** the plugin works best as a feedback loop — analyze a
+session, extract the lesson, and turn it into a skill, memory, or a dedicated
+Hermes profile so the next session starts smarter. See
+[HOW_TO_USE.md](HOW_TO_USE.md).
+
 ## What you get
 
 - **Session list** — title, date, tool count, cost; **Load more** up to 500
@@ -41,7 +46,9 @@ one.
   detail panel, or click the copy icon next to it
 - **Ask AI** — one click opens a new session with a ready-made analysis
   prompt (copied to your clipboard). Paste, pick your judge model, send.
-  No API keys, no config — it uses your existing Hermes.
+  No API keys, no config — it uses your existing Hermes. See
+  [HOW_TO_USE.md](HOW_TO_USE.md) for what to ask and how to turn the
+  analysis into lasting changes.
 
 ![Subagents](assets/subagents.png)
 
